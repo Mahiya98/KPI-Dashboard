@@ -54,13 +54,7 @@
       <table id="dataTable"></table>
     </div>
   </section>
-
-  <footer><p>Built with ❤️ • Data refreshes automatically from Google Sheets</p></footer>
-
-  <script src="app.js"></script>
-</body>
-</html>
-* { box-sizing: border-box; margin: 0; padding: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: 'Segoe UI', Roboto, sans-serif;
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
@@ -304,7 +298,12 @@ function renderTable(data) {
   const body = `<tbody>${data.map(r => `<tr>${keys.map(k => `<td>${r[k] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody>`;
   table.innerHTML = head + body;
 }
-# 📊 OEE Performance Dashboard
+
+
+  <footer><p>Built with ❤️ • Data refreshes automatically from Google Sheets</p></footer>
+
+  <script src="app.js"></script>
+          # 📊 OEE Performance Dashboard
 
 Interactive web dashboard that reads live data from Google Sheets — **no Apps Script required**.
 
@@ -332,3 +331,6 @@ git commit -m "Initial dashboard"
 git branch -M main
 git remote add origin https://github.com/YOUR_USERNAME/oee-dashboard.git
 git push -u origin main
+
+</body>
+</html>
