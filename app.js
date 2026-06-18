@@ -13,7 +13,6 @@ const toNum = (v) => {
 
 const $ = (id) => document.getElementById(id);
 
-// Convert Excel column letter (A, B, ..., Z, AA...) to 0-based index
 const colLetterToIndex = (letter) => {
   let n = 0;
   const L = String(letter).toUpperCase();
@@ -23,13 +22,11 @@ const colLetterToIndex = (letter) => {
   return n - 1;
 };
 
-// Get a row's value by column letter (uses __raw stored on the row)
 const colVal = (row, letter) => {
   if (!row || !row.__raw) return undefined;
   return row.__raw[colLetterToIndex(letter)];
 };
 
-// Average all values in a given column letter across an array of rows
 const avgByCol = (arr, letter) => {
   const vals = arr.map(r => toNum(colVal(r, letter))).filter(v => !isNaN(v));
   return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
@@ -49,7 +46,7 @@ Papa.parse(CSV_URL, {
       const dataRows = rows.slice(17).filter(r => r[0] && String(r[0]).trim() !== "");
 
       rawData = dataRows.map(r => {
-        const obj = { __raw: r };  // keep original array for column-letter access
+        const obj = { __raw: r };
         headerRow.forEach((h, i) => {
           if (h) obj[String(h).trim()] = r[i];
         });
@@ -149,7 +146,6 @@ function sum(arr, key) {
 }
 const setText = (id, txt) => { const el = $(id); if (el) el.textContent = txt; };
 
-// Format: convert decimals (<=1) to %, and percent values stay as-is
 const fmtPct = (v) => (v * (v > 0 && v <= 1 ? 100 : 1)).toFixed(1) + "%";
 const fmtNum = (v) => (isNaN(v) ? "—" : v.toFixed(1));
 
@@ -157,29 +153,15 @@ const fmtNum = (v) => (isNaN(v) ? "—" : v.toFixed(1));
 function updateDashboard() {
   const data = getFiltered();
 
-  // Existing KPIs (by header name)
-  const oee = avg(data, "OEE");
-  const av  = avg(data, "AV");
-  const pf  = avg(data, "Perf");
-  const ql  = avg(data, "Quality");
+  // KPIs (kept: OEE, Output, Records, NPT, MTTR, MTBF, CapUT)
+  setText("kpiOEE",    fmtPct(avg(data, "OEE")));
+  setText("kpiOutput", sum(data, "Actual Output").toLocaleString(undefined, {maximumFractionDigits: 0}));
+  setText("kpiCount",  data.length);
 
-  setText("kpiOEE",     fmtPct(oee));
-  setText("kpiAV",      fmtPct(av));
-  setText("kpiPerf",    fmtPct(pf));
-  setText("kpiQuality", fmtPct(ql));
-  setText("kpiOutput",  sum(data, "Actual Output").toLocaleString(undefined, {maximumFractionDigits: 0}));
-  setText("kpiCount",   data.length);
-
-  // 🆕 NEW KPIs (by column letter)
-  const npt   = avgByCol(data, "E");   // Column E  – NPT %
-  const mttr  = avgByCol(data, "N");   // Column N  – MTTR
-  const mtbf  = avgByCol(data, "O");   // Column O  – MTBF
-  const capUT = avgByCol(data, "T");   // Column T  – Cap UT %
-
-  setText("kpiNPT",   fmtPct(npt));
-  setText("kpiMTTR",  fmtNum(mttr));
-  setText("kpiMTBF",  fmtNum(mtbf));
-  setText("kpiCapUT", fmtPct(capUT));
+  setText("kpiNPT",   fmtPct(avgByCol(data, "E")));
+  setText("kpiMTTR",  fmtNum(avgByCol(data, "N")));
+  setText("kpiMTBF",  fmtNum(avgByCol(data, "O")));
+  setText("kpiCapUT", fmtPct(avgByCol(data, "T")));
 
   renderCharts(data);
   renderTable(data);
@@ -187,9 +169,12 @@ function updateDashboard() {
 
 // ---------- Charts ----------
 function renderCharts(data) {
-  const labels = data.map(r => r["Month"]);
   Object.values(charts).forEach(c => c && c.destroy());
+  charts = {};
 
+  const labels = data.map(r => r["Month"]);
+
+  // ---- OEE Trend (kept) ----
   const oeeEl = $("oeeTrend");
   if (oeeEl) charts.oee = new Chart(oeeEl, {
     type: "line",
@@ -201,17 +186,7 @@ function renderCharts(data) {
     options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: "OEE Trend" } } }
   });
 
-  const apqEl = $("avPerfQual");
-  if (apqEl) charts.apq = new Chart(apqEl, {
-    type: "bar",
-    data: { labels, datasets: [
-      { label: "Availability", data: data.map(r => toNum(r["AV"])      < 1 ? toNum(r["AV"])*100      : toNum(r["AV"])),      backgroundColor: "#48bb78" },
-      { label: "Performance",  data: data.map(r => toNum(r["Perf"])    < 1 ? toNum(r["Perf"])*100    : toNum(r["Perf"])),    backgroundColor: "#ed8936" },
-      { label: "Quality",      data: data.map(r => toNum(r["Quality"]) < 1 ? toNum(r["Quality"])*100 : toNum(r["Quality"])), backgroundColor: "#4299e1" }
-    ]},
-    options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: "AV / Performance / Quality %" } } }
-  });
-
+  // ---- Target vs Actual (kept) ----
   const taEl = $("targetVsActual");
   if (taEl) charts.ta = new Chart(taEl, {
     type: "bar",
@@ -222,6 +197,7 @@ function renderCharts(data) {
     options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: "Target vs Actual Output" } } }
   });
 
+  // ---- MTBF vs MTTR (kept) ----
   const mmEl = $("mtbfMttr");
   if (mmEl) charts.mm = new Chart(mmEl, {
     type: "line",
@@ -230,6 +206,79 @@ function renderCharts(data) {
       { label: "MTTR", data: data.map(r => toNum(colVal(r, "N"))), borderColor: "#e53e3e", backgroundColor: "rgba(229,62,62,0.1)", fill: true, tension: 0.3 }
     ]},
     options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: "MTBF vs MTTR" } } }
+  });
+
+  // ---- 🆕 Year-over-Year Comparison by SBU / Section ----
+  renderYearComparison(data);
+}
+
+// ---------- 🆕 Year Comparison Chart ----------
+function renderYearComparison(data) {
+  const el = $("yearCompare");
+  if (!el) return;
+
+  const sbuSel     = $("sbuFilter")?.value || "";
+  const sectionSel = $("sectionFilter")?.value || "";
+
+  // Decide grouping:
+  // - If a Section is chosen → group by Section (only one group)
+  // - Else if SBU is chosen → group by Section under that SBU
+  // - Else → group by SBU
+  const groupKey = sectionSel ? "Section" : (sbuSel ? "Section" : "SBU");
+
+  // Collect unique years (sorted) and groups
+  const years = [...new Set(data.map(r => String(r["Year"]).trim()).filter(Boolean))]
+                  .sort((a,b) => toNum(a) - toNum(b));
+  const groups = [...new Set(data.map(r => r[groupKey]).filter(Boolean))].sort();
+
+  // For each group + year, average the OEE
+  // (You can change "OEE" to any other KPI, e.g. "Actual Output" with sum())
+  const colorPalette = [
+    "#667eea", "#48bb78", "#ed8936", "#4299e1", "#e53e3e",
+    "#38b2ac", "#9f7aea", "#f56565", "#ecc94b", "#38a169"
+  ];
+
+  const datasets = years.map((yr, idx) => {
+    const dataForYear = groups.map(g => {
+      const rows = data.filter(r =>
+        String(r["Year"]).trim() === yr && r[groupKey] === g
+      );
+      const v = avg(rows, "OEE");
+      // Normalize to %
+      return v > 0 && v <= 1 ? v * 100 : v;
+    });
+    return {
+      label: yr,
+      data: dataForYear,
+      backgroundColor: colorPalette[idx % colorPalette.length],
+      borderColor: colorPalette[idx % colorPalette.length],
+      borderWidth: 1
+    };
+  });
+
+  charts.yearCompare = new Chart(el, {
+    type: "bar",
+    data: { labels: groups, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        title: {
+          display: true,
+          text: `Year-over-Year OEE % Comparison by ${groupKey}`
+        },
+        legend: { position: "top" }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: { display: true, text: "OEE %" }
+        },
+        x: {
+          title: { display: true, text: groupKey }
+        }
+      }
+    }
   });
 }
 
