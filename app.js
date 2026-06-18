@@ -16,9 +16,7 @@ const $ = (id) => document.getElementById(id);
 const colLetterToIndex = (letter) => {
   let n = 0;
   const L = String(letter).toUpperCase();
-  for (let i = 0; i < L.length; i++) {
-    n = n * 26 + (L.charCodeAt(i) - 64);
-  }
+  for (let i = 0; i < L.length; i++) n = n * 26 + (L.charCodeAt(i) - 64);
   return n - 1;
 };
 
@@ -31,7 +29,18 @@ const avgByCol = (arr, letter) => {
   const vals = arr.map(r => toNum(colVal(r, letter))).filter(v => !isNaN(v));
   return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
 };
+const sumByCol = (arr, letter) => {
+  return arr.map(r => toNum(colVal(r, letter))).filter(v => !isNaN(v)).reduce((a,b) => a+b, 0);
+};
 
+// 🆕 Pull SECTION from column B
+function getRowSection(row) {
+  const v = colVal(row, "B");
+  if (v == null) return "";
+  return String(v).trim();
+}
+
+// Pull YEAR from column U
 function getRowYear(row) {
   const v = colVal(row, "U");
   if (v == null) return "";
@@ -64,7 +73,8 @@ Papa.parse(CSV_URL, {
         headerRow.forEach((h, i) => {
           if (h) obj[String(h).trim()] = r[i];
         });
-        obj.__year = getRowYear(obj);
+        obj.__year    = getRowYear(obj);     // from column U
+        obj.__section = getRowSection(obj);  // from column B
         return obj;
       });
 
@@ -83,14 +93,12 @@ Papa.parse(CSV_URL, {
 // ---------- SBU Filter ONLY ----------
 function initFilters() {
   const sbuSel = $("sbuFilter");
-
   if (sbuSel) {
     const sbus = [...new Set(rawData.map(r => r["SBU"]).filter(Boolean))].sort();
     sbuSel.innerHTML = `<option value="">All SBUs</option>` +
       sbus.map(s => `<option value="${s}">${s}</option>`).join("");
     sbuSel.addEventListener("change", updateDashboard);
   }
-
   const resetBtn = $("resetBtn");
   if (resetBtn) {
     resetBtn.addEventListener("click", () => {
@@ -136,14 +144,17 @@ function updateDashboard() {
 }
 
 function getYears(data) {
-  return [...new Set(data.map(r => r.__year).filter(y => y && /^\d{4}$/.test(y)))]
+  return [...new Set(data.map(r => r.__year).filter(y => y && /^\d{4}$/.test(y))))]
            .sort((a, b) => toNum(a) - toNum(b));
 }
+function getSections(data) {
+  return [...new Set(data.map(r => r.__section).filter(Boolean))].sort();
+}
 function withValidYear(data) {
-  return data.filter(r => r.__year && /^\d{4}$/.test(r.__year));
+  return data.filter(r => r.__year && /^\d{4}$/.test(r.__year) && r.__section);
 }
 
-// 🆕 Year color palette (consistent across all charts)
+// 🆕 Year color palette
 const YEAR_COLORS = {
   "2024": { main: "#667eea", light: "#a3b1f0" },
   "2025": { main: "#48bb78", light: "#8fd5a8" },
@@ -152,10 +163,7 @@ const YEAR_COLORS = {
   "2028": { main: "#e53e3e", light: "#f08585" }
 };
 const FALLBACK_COLOR = { main: "#9f7aea", light: "#c7afef" };
-
-function colorForYear(yr) {
-  return YEAR_COLORS[yr] || FALLBACK_COLOR;
-}
+const colorForYear = (yr) => YEAR_COLORS[yr] || FALLBACK_COLOR;
 
 // ---------- Charts ----------
 function renderCharts(data) {
@@ -163,99 +171,105 @@ function renderCharts(data) {
   charts = {};
 
   const cleanData = withValidYear(data);
-  const years = getYears(cleanData);
-  const sbuSel = $("sbuFilter")?.value || "";
+  const years    = getYears(cleanData);
+  const sections = getSections(cleanData);
+  const sbuSel   = $("sbuFilter")?.value || "";
 
-  // ---- 1. OEE Trend by Year ----
-  const oeeEl = $("oeeTrend");
-  if (oeeEl) {
-    const oeeByYear = years.map(y => normPct(avg(cleanData.filter(r => r.__year === y), "OEE")));
-    charts.oee = new Chart(oeeEl, {
-      type: "line",
-      data: { labels: years, datasets: [{
-        label: "Avg OEE %",
-        data: oeeByYear,
-        borderColor: "#667eea",
-        backgroundColor: "rgba(102,126,234,0.2)",
-        fill: true, tension: 0.3,
-        pointRadius: 7, pointHoverRadius: 9,
-        borderWidth: 3
-      }]},
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { title: { display: true, text: "OEE % – Year-over-Year Trend" } },
-        scales: {
-          y: { beginAtZero: true, max: 100, title: { display: true, text: "OEE %" } },
-          x: { title: { display: true, text: "Year" } }
-        }
-      }
-    });
-  }
+  // ---- 1. OEE % – Section + Year ----
+  renderOEEbySection(cleanData, years, sections, sbuSel);
 
-  // ---- 2. 🆕 Target vs Actual Output – Section-wise + Year-wise ----
-  renderTargetVsActualBySection(cleanData, years, sbuSel);
+  // ---- 2. Target vs Actual – Section + Year (grouped, NOT stacked) ----
+  renderTargetVsActualBySection(cleanData, years, sections, sbuSel);
 
-  // ---- 3. 🆕 MTBF vs MTTR – Section-wise + Year-wise ----
-  renderMtbfMttrBySection(cleanData, years, sbuSel);
+  // ---- 3. MTBF vs MTTR – Section + Year (grouped) ----
+  renderMtbfMttrBySection(cleanData, years, sections, sbuSel);
 
-  // ---- 4. Year-over-Year OEE Comparison – ALL Sections ----
-  renderYearComparison(cleanData);
+  // ---- 4. Year-over-Year OEE % Comparison (wide chart) ----
+  renderYearComparison(cleanData, years, sections, sbuSel);
 }
 
-// ---------- 🆕 Target vs Actual by Section + Year ----------
-function renderTargetVsActualBySection(data, years, sbuSel) {
-  const el = $("targetVsActual");
+// ---------- 1. OEE % by Section + Year ----------
+function renderOEEbySection(data, years, sections, sbuSel) {
+  const el = $("oeeTrend");
   if (!el) return;
 
-  const sections = [...new Set(data.map(r => r["Section"]).filter(Boolean))].sort();
-
-  // Build datasets: for each year, two datasets (Target & Actual)
-  const datasets = [];
-  years.forEach(yr => {
+  const datasets = years.map(yr => {
     const c = colorForYear(yr);
-    const targetData = sections.map(sec => sum(
-      data.filter(r => r.__year === yr && r["Section"] === sec), "Target"
-    ));
-    const actualData = sections.map(sec => sum(
-      data.filter(r => r.__year === yr && r["Section"] === sec), "Actual Output"
-    ));
-
-    datasets.push({
-      label: `${yr} Target`,
-      data: targetData,
-      backgroundColor: c.light,
-      borderColor: c.light,
-      borderWidth: 1,
-      stack: `stack-${yr}`  // group target+actual side-by-side per year
-    });
-    datasets.push({
-      label: `${yr} Actual`,
-      data: actualData,
+    return {
+      label: yr,
+      data: sections.map(sec => normPct(avg(
+        data.filter(r => r.__year === yr && r.__section === sec), "OEE"
+      ))),
       backgroundColor: c.main,
       borderColor: c.main,
       borderWidth: 1,
-      stack: `stack-${yr}`
+      borderRadius: 4
+    };
+  });
+
+  const titleText = sbuSel
+    ? `OEE % – Sections in ${sbuSel} (by Year)`
+    : "OEE % – Section-wise & Year-wise";
+
+  charts.oee = new Chart(el, {
+    type: "bar",
+    data: { labels: sections, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        title: { display: true, text: titleText, font: { size: 14, weight: "bold" } },
+        legend: { position: "top" },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%` } }
+      },
+      scales: {
+        y: { beginAtZero: true, max: 100, title: { display: true, text: "OEE %" } },
+        x: { title: { display: true, text: "Section" } }
+      }
+    }
+  });
+}
+
+// ---------- 2. Target vs Actual by Section + Year (grouped) ----------
+function renderTargetVsActualBySection(data, years, sections, sbuSel) {
+  const el = $("targetVsActual");
+  if (!el) return;
+
+  const datasets = [];
+  years.forEach(yr => {
+    const c = colorForYear(yr);
+    datasets.push({
+      label: `${yr} Target`,
+      data: sections.map(sec => sum(
+        data.filter(r => r.__year === yr && r.__section === sec), "Target"
+      )),
+      backgroundColor: c.light,
+      borderColor: c.light,
+      borderWidth: 1
+    });
+    datasets.push({
+      label: `${yr} Actual`,
+      data: sections.map(sec => sum(
+        data.filter(r => r.__year === yr && r.__section === sec), "Actual Output"
+      )),
+      backgroundColor: c.main,
+      borderColor: c.main,
+      borderWidth: 1
     });
   });
 
   const titleText = sbuSel
-    ? `Target vs Actual Output – Sections in ${sbuSel} (by Year)`
+    ? `Target vs Actual – Sections in ${sbuSel} (by Year)`
     : "Target vs Actual Output – Section-wise & Year-wise";
 
   charts.ta = new Chart(el, {
     type: "bar",
     data: { labels: sections, datasets },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       plugins: {
         title: { display: true, text: titleText, font: { size: 14, weight: "bold" } },
         legend: { position: "top" },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}`
-          }
-        }
+        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}` } }
       },
       scales: {
         y: { beginAtZero: true, title: { display: true, text: "Output" } },
@@ -265,39 +279,31 @@ function renderTargetVsActualBySection(data, years, sbuSel) {
   });
 }
 
-// ---------- 🆕 MTBF vs MTTR by Section + Year ----------
-function renderMtbfMttrBySection(data, years, sbuSel) {
+// ---------- 3. MTBF vs MTTR by Section + Year (grouped) ----------
+function renderMtbfMttrBySection(data, years, sections, sbuSel) {
   const el = $("mtbfMttr");
   if (!el) return;
 
-  const sections = [...new Set(data.map(r => r["Section"]).filter(Boolean))].sort();
-
-  // For each year: 2 datasets (MTBF & MTTR) — paired with same color hue
   const datasets = [];
   years.forEach(yr => {
     const c = colorForYear(yr);
-    const mtbfData = sections.map(sec => avgByCol(
-      data.filter(r => r.__year === yr && r["Section"] === sec), "O"
-    ));
-    const mttrData = sections.map(sec => avgByCol(
-      data.filter(r => r.__year === yr && r["Section"] === sec), "N"
-    ));
-
     datasets.push({
       label: `${yr} MTBF`,
-      data: mtbfData,
+      data: sections.map(sec => avgByCol(
+        data.filter(r => r.__year === yr && r.__section === sec), "O"
+      )),
       backgroundColor: c.main,
       borderColor: c.main,
-      borderWidth: 1,
-      stack: `stack-${yr}`
+      borderWidth: 1
     });
     datasets.push({
       label: `${yr} MTTR`,
-      data: mttrData,
+      data: sections.map(sec => avgByCol(
+        data.filter(r => r.__year === yr && r.__section === sec), "N"
+      )),
       backgroundColor: c.light,
       borderColor: c.light,
-      borderWidth: 1,
-      stack: `stack-${yr}`
+      borderWidth: 1
     });
   });
 
@@ -309,16 +315,11 @@ function renderMtbfMttrBySection(data, years, sbuSel) {
     type: "bar",
     data: { labels: sections, datasets },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       plugins: {
         title: { display: true, text: titleText, font: { size: 14, weight: "bold" } },
         legend: { position: "top" },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}`
-          }
-        }
+        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}` } }
       },
       scales: {
         y: { beginAtZero: true, title: { display: true, text: "Hours" } },
@@ -328,24 +329,18 @@ function renderMtbfMttrBySection(data, years, sbuSel) {
   });
 }
 
-// ---------- Year Comparison Chart (OEE % by Section) ----------
-function renderYearComparison(data) {
+// ---------- 4. Year-over-Year OEE % Comparison ----------
+function renderYearComparison(data, years, sections, sbuSel) {
   const el = $("yearCompare");
   if (!el) return;
 
-  const sbuSel = $("sbuFilter")?.value || "";
-  const years  = getYears(data);
-  const sections = [...new Set(data.map(r => r["Section"]).filter(Boolean))].sort();
-
   const datasets = years.map(yr => {
     const c = colorForYear(yr);
-    const dataForYear = sections.map(sec => {
-      const rows = data.filter(r => r.__year === yr && r["Section"] === sec);
-      return normPct(avg(rows, "OEE"));
-    });
     return {
       label: yr,
-      data: dataForYear,
+      data: sections.map(sec => normPct(avg(
+        data.filter(r => r.__year === yr && r.__section === sec), "OEE"
+      ))),
       backgroundColor: c.main,
       borderColor: c.main,
       borderWidth: 1,
@@ -361,23 +356,14 @@ function renderYearComparison(data) {
     type: "bar",
     data: { labels: sections, datasets },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       plugins: {
         title: { display: true, text: titleText, font: { size: 16, weight: "bold" } },
         legend: { position: "top" },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`
-          }
-        }
+        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%` } }
       },
       scales: {
-        y: {
-          beginAtZero: true, max: 100,
-          title: { display: true, text: "OEE %" },
-          ticks: { stepSize: 10 }
-        },
+        y: { beginAtZero: true, max: 100, title: { display: true, text: "OEE %" }, ticks: { stepSize: 10 } },
         x: { title: { display: true, text: "Section" } }
       }
     }
@@ -389,7 +375,7 @@ function renderTable(data) {
   const table = $("dataTable");
   if (!table) return;
   if (!data.length) { table.innerHTML = "<tr><td>No data</td></tr>"; return; }
-  const keys = Object.keys(data[0]).filter(k => k && k !== "__raw" && k !== "__year");
+  const keys = Object.keys(data[0]).filter(k => k && k !== "__raw" && k !== "__year" && k !== "__section");
   const head = `<thead><tr>${keys.map(k => `<th>${k}</th>`).join("")}</tr></thead>`;
   const body = `<tbody>${data.map(r => `<tr>${keys.map(k => `<td>${r[k] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody>`;
   table.innerHTML = head + body;
