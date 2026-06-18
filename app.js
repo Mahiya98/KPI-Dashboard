@@ -80,7 +80,7 @@ Papa.parse(CSV_URL, {
   error: (err) => alert("Error loading data: " + err.message)
 });
 
-// ---------- 🆕 SBU Filter ONLY ----------
+// ---------- SBU Filter ONLY ----------
 function initFilters() {
   const sbuSel = $("sbuFilter");
 
@@ -105,7 +105,6 @@ function getFiltered() {
   return rawData.filter(r => !sbu || r["SBU"] === sbu);
 }
 
-// ---------- Helpers ----------
 function avg(arr, key) {
   const vals = arr.map(r => toNum(r[key])).filter(v => !isNaN(v));
   return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
@@ -121,7 +120,7 @@ const normPct = (v) => (v > 0 && v <= 1 ? v * 100 : v);
 
 // ---------- Dashboard update ----------
 function updateDashboard() {
-  const data = getFiltered(); // 🆕 respects SBU filter
+  const data = getFiltered();
 
   setText("kpiOEE",    fmtPct(avg(data, "OEE")));
   setText("kpiOutput", sum(data, "Actual Output").toLocaleString(undefined, {maximumFractionDigits: 0}));
@@ -144,6 +143,20 @@ function withValidYear(data) {
   return data.filter(r => r.__year && /^\d{4}$/.test(r.__year));
 }
 
+// 🆕 Year color palette (consistent across all charts)
+const YEAR_COLORS = {
+  "2024": { main: "#667eea", light: "#a3b1f0" },
+  "2025": { main: "#48bb78", light: "#8fd5a8" },
+  "2026": { main: "#ed8936", light: "#f4b079" },
+  "2027": { main: "#4299e1", light: "#87bff0" },
+  "2028": { main: "#e53e3e", light: "#f08585" }
+};
+const FALLBACK_COLOR = { main: "#9f7aea", light: "#c7afef" };
+
+function colorForYear(yr) {
+  return YEAR_COLORS[yr] || FALLBACK_COLOR;
+}
+
 // ---------- Charts ----------
 function renderCharts(data) {
   Object.values(charts).forEach(c => c && c.destroy());
@@ -151,6 +164,7 @@ function renderCharts(data) {
 
   const cleanData = withValidYear(data);
   const years = getYears(cleanData);
+  const sbuSel = $("sbuFilter")?.value || "";
 
   // ---- 1. OEE Trend by Year ----
   const oeeEl = $("oeeTrend");
@@ -178,84 +192,162 @@ function renderCharts(data) {
     });
   }
 
-  // ---- 2. Target vs Actual Output by Year ----
-  const taEl = $("targetVsActual");
-  if (taEl) {
-    const targetByYear = years.map(y => sum(cleanData.filter(r => r.__year === y), "Target"));
-    const actualByYear = years.map(y => sum(cleanData.filter(r => r.__year === y), "Actual Output"));
-    charts.ta = new Chart(taEl, {
-      type: "bar",
-      data: { labels: years, datasets: [
-        { label: "Target",        data: targetByYear, backgroundColor: "#a0aec0" },
-        { label: "Actual Output", data: actualByYear, backgroundColor: "#38b2ac" }
-      ]},
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { title: { display: true, text: "Target vs Actual Output – by Year" } },
-        scales: {
-          y: { beginAtZero: true },
-          x: { title: { display: true, text: "Year" } }
-        }
-      }
-    });
-  }
+  // ---- 2. 🆕 Target vs Actual Output – Section-wise + Year-wise ----
+  renderTargetVsActualBySection(cleanData, years, sbuSel);
 
-  // ---- 3. MTBF vs MTTR by Year ----
-  const mmEl = $("mtbfMttr");
-  if (mmEl) {
-    const mtbfByYear = years.map(y => avgByCol(cleanData.filter(r => r.__year === y), "O"));
-    const mttrByYear = years.map(y => avgByCol(cleanData.filter(r => r.__year === y), "N"));
-    charts.mm = new Chart(mmEl, {
-      type: "bar",
-      data: { labels: years, datasets: [
-        { label: "MTBF", data: mtbfByYear, backgroundColor: "#38a169" },
-        { label: "MTTR", data: mttrByYear, backgroundColor: "#e53e3e" }
-      ]},
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { title: { display: true, text: "MTBF vs MTTR – by Year" } },
-        scales: {
-          y: { beginAtZero: true },
-          x: { title: { display: true, text: "Year" } }
-        }
-      }
-    });
-  }
+  // ---- 3. 🆕 MTBF vs MTTR – Section-wise + Year-wise ----
+  renderMtbfMttrBySection(cleanData, years, sbuSel);
 
+  // ---- 4. Year-over-Year OEE Comparison – ALL Sections ----
   renderYearComparison(cleanData);
 }
 
-// ---------- Year Comparison Chart (always groups by Section) ----------
+// ---------- 🆕 Target vs Actual by Section + Year ----------
+function renderTargetVsActualBySection(data, years, sbuSel) {
+  const el = $("targetVsActual");
+  if (!el) return;
+
+  const sections = [...new Set(data.map(r => r["Section"]).filter(Boolean))].sort();
+
+  // Build datasets: for each year, two datasets (Target & Actual)
+  const datasets = [];
+  years.forEach(yr => {
+    const c = colorForYear(yr);
+    const targetData = sections.map(sec => sum(
+      data.filter(r => r.__year === yr && r["Section"] === sec), "Target"
+    ));
+    const actualData = sections.map(sec => sum(
+      data.filter(r => r.__year === yr && r["Section"] === sec), "Actual Output"
+    ));
+
+    datasets.push({
+      label: `${yr} Target`,
+      data: targetData,
+      backgroundColor: c.light,
+      borderColor: c.light,
+      borderWidth: 1,
+      stack: `stack-${yr}`  // group target+actual side-by-side per year
+    });
+    datasets.push({
+      label: `${yr} Actual`,
+      data: actualData,
+      backgroundColor: c.main,
+      borderColor: c.main,
+      borderWidth: 1,
+      stack: `stack-${yr}`
+    });
+  });
+
+  const titleText = sbuSel
+    ? `Target vs Actual Output – Sections in ${sbuSel} (by Year)`
+    : "Target vs Actual Output – Section-wise & Year-wise";
+
+  charts.ta = new Chart(el, {
+    type: "bar",
+    data: { labels: sections, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        title: { display: true, text: titleText, font: { size: 14, weight: "bold" } },
+        legend: { position: "top" },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}`
+          }
+        }
+      },
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: "Output" } },
+        x: { title: { display: true, text: "Section" } }
+      }
+    }
+  });
+}
+
+// ---------- 🆕 MTBF vs MTTR by Section + Year ----------
+function renderMtbfMttrBySection(data, years, sbuSel) {
+  const el = $("mtbfMttr");
+  if (!el) return;
+
+  const sections = [...new Set(data.map(r => r["Section"]).filter(Boolean))].sort();
+
+  // For each year: 2 datasets (MTBF & MTTR) — paired with same color hue
+  const datasets = [];
+  years.forEach(yr => {
+    const c = colorForYear(yr);
+    const mtbfData = sections.map(sec => avgByCol(
+      data.filter(r => r.__year === yr && r["Section"] === sec), "O"
+    ));
+    const mttrData = sections.map(sec => avgByCol(
+      data.filter(r => r.__year === yr && r["Section"] === sec), "N"
+    ));
+
+    datasets.push({
+      label: `${yr} MTBF`,
+      data: mtbfData,
+      backgroundColor: c.main,
+      borderColor: c.main,
+      borderWidth: 1,
+      stack: `stack-${yr}`
+    });
+    datasets.push({
+      label: `${yr} MTTR`,
+      data: mttrData,
+      backgroundColor: c.light,
+      borderColor: c.light,
+      borderWidth: 1,
+      stack: `stack-${yr}`
+    });
+  });
+
+  const titleText = sbuSel
+    ? `MTBF vs MTTR – Sections in ${sbuSel} (by Year)`
+    : "MTBF vs MTTR – Section-wise & Year-wise";
+
+  charts.mm = new Chart(el, {
+    type: "bar",
+    data: { labels: sections, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        title: { display: true, text: titleText, font: { size: 14, weight: "bold" } },
+        legend: { position: "top" },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}`
+          }
+        }
+      },
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: "Hours" } },
+        x: { title: { display: true, text: "Section" } }
+      }
+    }
+  });
+}
+
+// ---------- Year Comparison Chart (OEE % by Section) ----------
 function renderYearComparison(data) {
   const el = $("yearCompare");
   if (!el) return;
 
-  const groupKey = "Section"; // always sections
   const sbuSel = $("sbuFilter")?.value || "";
-
   const years  = getYears(data);
-  const groups = [...new Set(data.map(r => r[groupKey]).filter(Boolean))].sort();
+  const sections = [...new Set(data.map(r => r["Section"]).filter(Boolean))].sort();
 
-  const yearColors = {
-    "2024": "#667eea",
-    "2025": "#48bb78",
-    "2026": "#ed8936",
-    "2027": "#4299e1",
-    "2028": "#e53e3e"
-  };
-  const fallback = ["#9f7aea", "#f56565", "#ecc94b", "#38a169", "#38b2ac"];
-
-  const datasets = years.map((yr, idx) => {
-    const dataForYear = groups.map(g => {
-      const rows = data.filter(r => r.__year === yr && r[groupKey] === g);
+  const datasets = years.map(yr => {
+    const c = colorForYear(yr);
+    const dataForYear = sections.map(sec => {
+      const rows = data.filter(r => r.__year === yr && r["Section"] === sec);
       return normPct(avg(rows, "OEE"));
     });
-    const color = yearColors[yr] || fallback[idx % fallback.length];
     return {
       label: yr,
       data: dataForYear,
-      backgroundColor: color,
-      borderColor: color,
+      backgroundColor: c.main,
+      borderColor: c.main,
       borderWidth: 1,
       borderRadius: 4
     };
@@ -267,7 +359,7 @@ function renderYearComparison(data) {
 
   charts.yearCompare = new Chart(el, {
     type: "bar",
-    data: { labels: groups, datasets },
+    data: { labels: sections, datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -282,8 +374,7 @@ function renderYearComparison(data) {
       },
       scales: {
         y: {
-          beginAtZero: true,
-          max: 100,
+          beginAtZero: true, max: 100,
           title: { display: true, text: "OEE %" },
           ticks: { stepSize: 10 }
         },
