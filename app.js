@@ -29,11 +29,8 @@ const avgByCol = (arr, letter) => {
   const vals = arr.map(r => toNum(colVal(r, letter))).filter(v => !isNaN(v));
   return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
 };
-const sumByCol = (arr, letter) => {
-  return arr.map(r => toNum(colVal(r, letter))).filter(v => !isNaN(v)).reduce((a,b) => a+b, 0);
-};
 
-// 🆕 Pull SECTION from column B
+// Pull SECTION from column B
 function getRowSection(row) {
   const v = colVal(row, "B");
   if (v == null) return "";
@@ -73,8 +70,8 @@ Papa.parse(CSV_URL, {
         headerRow.forEach((h, i) => {
           if (h) obj[String(h).trim()] = r[i];
         });
-        obj.__year    = getRowYear(obj);     // from column U
-        obj.__section = getRowSection(obj);  // from column B
+        obj.__year    = getRowYear(obj);
+        obj.__section = getRowSection(obj);
         return obj;
       });
 
@@ -90,7 +87,7 @@ Papa.parse(CSV_URL, {
   error: (err) => alert("Error loading data: " + err.message)
 });
 
-// ---------- SBU Filter ONLY ----------
+// ---------- SBU Filter ----------
 function initFilters() {
   const sbuSel = $("sbuFilter");
   if (sbuSel) {
@@ -143,8 +140,9 @@ function updateDashboard() {
   renderTable(data);
 }
 
+// 🔧 FIXED: removed extra ")"
 function getYears(data) {
-  return [...new Set(data.map(r => r.__year).filter(y => y && /^\d{4}$/.test(y))))]
+  return [...new Set(data.map(r => r.__year).filter(y => y && /^\d{4}$/.test(y)))]
            .sort((a, b) => toNum(a) - toNum(b));
 }
 function getSections(data) {
@@ -154,7 +152,7 @@ function withValidYear(data) {
   return data.filter(r => r.__year && /^\d{4}$/.test(r.__year) && r.__section);
 }
 
-// 🆕 Year color palette
+// Year color palette
 const YEAR_COLORS = {
   "2024": { main: "#667eea", light: "#a3b1f0" },
   "2025": { main: "#48bb78", light: "#8fd5a8" },
@@ -175,16 +173,9 @@ function renderCharts(data) {
   const sections = getSections(cleanData);
   const sbuSel   = $("sbuFilter")?.value || "";
 
-  // ---- 1. OEE % – Section + Year ----
   renderOEEbySection(cleanData, years, sections, sbuSel);
-
-  // ---- 2. Target vs Actual – Section + Year (grouped, NOT stacked) ----
   renderTargetVsActualBySection(cleanData, years, sections, sbuSel);
-
-  // ---- 3. MTBF vs MTTR – Section + Year (grouped) ----
   renderMtbfMttrBySection(cleanData, years, sections, sbuSel);
-
-  // ---- 4. Year-over-Year OEE % Comparison (wide chart) ----
   renderYearComparison(cleanData, years, sections, sbuSel);
 }
 
@@ -229,7 +220,7 @@ function renderOEEbySection(data, years, sections, sbuSel) {
   });
 }
 
-// ---------- 2. Target vs Actual by Section + Year (grouped) ----------
+// ---------- 2. Target vs Actual by Section + Year ----------
 function renderTargetVsActualBySection(data, years, sections, sbuSel) {
   const el = $("targetVsActual");
   if (!el) return;
@@ -279,7 +270,7 @@ function renderTargetVsActualBySection(data, years, sections, sbuSel) {
   });
 }
 
-// ---------- 3. MTBF vs MTTR by Section + Year (grouped) ----------
+// ---------- 3. MTBF vs MTTR by Section + Year ----------
 function renderMtbfMttrBySection(data, years, sections, sbuSel) {
   const el = $("mtbfMttr");
   if (!el) return;
