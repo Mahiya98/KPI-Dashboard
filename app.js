@@ -32,7 +32,6 @@ const avgByCol = (arr, letter) => {
   return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
 };
 
-// Get clean year from COLUMN U
 function getRowYear(row) {
   const v = colVal(row, "U");
   if (v == null) return "";
@@ -71,6 +70,7 @@ Papa.parse(CSV_URL, {
 
       console.log("✅ Loaded rows:", rawData.length, "Sample:", rawData[0]);
 
+      initFilters();
       updateDashboard();
     } catch (e) {
       console.error(e);
@@ -79,6 +79,31 @@ Papa.parse(CSV_URL, {
   },
   error: (err) => alert("Error loading data: " + err.message)
 });
+
+// ---------- 🆕 SBU Filter ONLY ----------
+function initFilters() {
+  const sbuSel = $("sbuFilter");
+
+  if (sbuSel) {
+    const sbus = [...new Set(rawData.map(r => r["SBU"]).filter(Boolean))].sort();
+    sbuSel.innerHTML = `<option value="">All SBUs</option>` +
+      sbus.map(s => `<option value="${s}">${s}</option>`).join("");
+    sbuSel.addEventListener("change", updateDashboard);
+  }
+
+  const resetBtn = $("resetBtn");
+  if (resetBtn) {
+    resetBtn.addEventListener("click", () => {
+      if (sbuSel) sbuSel.value = "";
+      updateDashboard();
+    });
+  }
+}
+
+function getFiltered() {
+  const sbu = $("sbuFilter")?.value || "";
+  return rawData.filter(r => !sbu || r["SBU"] === sbu);
+}
 
 // ---------- Helpers ----------
 function avg(arr, key) {
@@ -96,7 +121,7 @@ const normPct = (v) => (v > 0 && v <= 1 ? v * 100 : v);
 
 // ---------- Dashboard update ----------
 function updateDashboard() {
-  const data = rawData; // 🆕 No filters – use full dataset
+  const data = getFiltered(); // 🆕 respects SBU filter
 
   setText("kpiOEE",    fmtPct(avg(data, "OEE")));
   setText("kpiOutput", sum(data, "Actual Output").toLocaleString(undefined, {maximumFractionDigits: 0}));
@@ -197,22 +222,20 @@ function renderCharts(data) {
     });
   }
 
-  // ---- 4. Year-over-Year OEE Comparison – ALL Sections ----
   renderYearComparison(cleanData);
 }
 
-// ---------- Year Comparison Chart (all sections, all years) ----------
+// ---------- Year Comparison Chart (always groups by Section) ----------
 function renderYearComparison(data) {
   const el = $("yearCompare");
   if (!el) return;
 
-  // Always group by Section (across all SBUs)
-  const groupKey = "Section";
+  const groupKey = "Section"; // always sections
+  const sbuSel = $("sbuFilter")?.value || "";
 
   const years  = getYears(data);
   const groups = [...new Set(data.map(r => r[groupKey]).filter(Boolean))].sort();
 
-  // Year colors – fixed mapping for consistency
   const yearColors = {
     "2024": "#667eea",
     "2025": "#48bb78",
@@ -238,6 +261,10 @@ function renderYearComparison(data) {
     };
   });
 
+  const titleText = sbuSel
+    ? `Year-over-Year OEE % – Sections in ${sbuSel}`
+    : "Year-over-Year OEE % Comparison – All Sections";
+
   charts.yearCompare = new Chart(el, {
     type: "bar",
     data: { labels: groups, datasets },
@@ -245,11 +272,7 @@ function renderYearComparison(data) {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        title: {
-          display: true,
-          text: "Year-over-Year OEE % Comparison – All Sections",
-          font: { size: 16, weight: "bold" }
-        },
+        title: { display: true, text: titleText, font: { size: 16, weight: "bold" } },
         legend: { position: "top" },
         tooltip: {
           callbacks: {
@@ -264,9 +287,7 @@ function renderYearComparison(data) {
           title: { display: true, text: "OEE %" },
           ticks: { stepSize: 10 }
         },
-        x: {
-          title: { display: true, text: "Section" }
-        }
+        x: { title: { display: true, text: "Section" } }
       }
     }
   });
