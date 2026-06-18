@@ -16,7 +16,7 @@
     <p class="subtitle">Live data from Google Sheets</p>
   </header>
 
-  <!-- Filters -->
+  <!-- Filters: only SBU & Section now -->
   <section class="filters">
     <div class="filter-group">
       <label for="sbuFilter">SBU</label>
@@ -26,18 +26,10 @@
       <label for="sectionFilter">Section</label>
       <select id="sectionFilter"><option value="">All</option></select>
     </div>
-    <div class="filter-group">
-      <label for="yearFilter">Year</label>
-      <select id="yearFilter"><option value="">All Years</option></select>
-    </div>
-    <div class="filter-group">
-      <label for="monthFilter">Month</label>
-      <select id="monthFilter"><option value="">All Months</option></select>
-    </div>
     <button id="resetBtn">🔄 Reset</button>
   </section>
 
-  <!-- 🆕 Top row: 4 new KPI cards -->
+  <!-- Top KPI row -->
   <section class="kpis kpis-top">
     <div class="kpi-card"><h3>Avg NPT %</h3><p id="kpiNPT">—</p></div>
     <div class="kpi-card"><h3>Avg MTTR</h3><p id="kpiMTTR">—</p></div>
@@ -45,19 +37,18 @@
     <div class="kpi-card"><h3>Avg Cap UT %</h3><p id="kpiCapUT">—</p></div>
   </section>
 
-  <!-- Main KPI row (cleaned up: removed AV / Perf / Quality) -->
+  <!-- Main KPI row -->
   <section class="kpis">
     <div class="kpi-card"><h3>Avg OEE</h3><p id="kpiOEE">—</p></div>
     <div class="kpi-card"><h3>Total Output</h3><p id="kpiOutput">—</p></div>
     <div class="kpi-card"><h3>Records</h3><p id="kpiCount">—</p></div>
   </section>
 
-  <!-- Charts -->
+  <!-- Charts (all now show YEARLY comparison) -->
   <section class="charts">
     <div class="chart-box"><canvas id="oeeTrend"></canvas></div>
     <div class="chart-box"><canvas id="targetVsActual"></canvas></div>
     <div class="chart-box"><canvas id="mtbfMttr"></canvas></div>
-    <!-- 🆕 Year-over-Year comparison chart -->
     <div class="chart-box"><canvas id="yearCompare"></canvas></div>
   </section>
 
