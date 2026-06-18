@@ -32,23 +32,16 @@ const avgByCol = (arr, letter) => {
   return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
 };
 
-const sumByCol = (arr, letter) => {
-  return arr.map(r => toNum(colVal(r, letter))).filter(v => !isNaN(v)).reduce((a,b) => a+b, 0);
-};
-
-// 🆕 Get clean year from COLUMN U
+// Get clean year from COLUMN U
 function getRowYear(row) {
   const v = colVal(row, "U");
   if (v == null) return "";
   const s = String(v).trim();
-  // Skip junk values
   if (!s || /^(none|ne|null|n\/a|-)$/i.test(s)) return "";
-  // Pull only digits (handles "2024", "24", "Year 2024", etc.)
   const m = s.match(/(\d{2,4})/);
   if (!m) return "";
   let yr = m[1];
-  if (yr.length === 2) yr = "20" + yr; // 24 → 2024
-  // Sanity check: keep realistic years
+  if (yr.length === 2) yr = "20" + yr;
   const num = parseInt(yr, 10);
   if (num < 2000 || num > 2100) return "";
   return yr;
@@ -72,13 +65,12 @@ Papa.parse(CSV_URL, {
         headerRow.forEach((h, i) => {
           if (h) obj[String(h).trim()] = r[i];
         });
-        obj.__year = getRowYear(obj); // 🆕 attach clean year from col U
+        obj.__year = getRowYear(obj);
         return obj;
       });
 
-      console.log("✅ Loaded rows:", rawData.length, "Sample:", rawData[0], "Year (col U):", rawData[0]?.__year);
+      console.log("✅ Loaded rows:", rawData.length, "Sample:", rawData[0]);
 
-      initFilters();
       updateDashboard();
     } catch (e) {
       console.error(e);
@@ -88,55 +80,7 @@ Papa.parse(CSV_URL, {
   error: (err) => alert("Error loading data: " + err.message)
 });
 
-// ---------- Filters (SBU & Section only) ----------
-function initFilters() {
-  const sbuSel     = $("sbuFilter");
-  const sectionSel = $("sectionFilter");
-
-  if (sbuSel) {
-    const sbus = [...new Set(rawData.map(r => r["SBU"]).filter(Boolean))].sort();
-    sbuSel.innerHTML = `<option value="">All SBUs</option>` +
-      sbus.map(s => `<option value="${s}">${s}</option>`).join("");
-    sbuSel.addEventListener("change", () => { populateSections(); updateDashboard(); });
-  }
-
-  if (sectionSel) sectionSel.addEventListener("change", updateDashboard);
-
-  const resetBtn = $("resetBtn");
-  if (resetBtn) {
-    resetBtn.addEventListener("click", () => {
-      if (sbuSel)     sbuSel.value = "";
-      if (sectionSel) sectionSel.value = "";
-      populateSections();
-      updateDashboard();
-    });
-  }
-
-  populateSections();
-}
-
-function populateSections() {
-  const sbuSel     = $("sbuFilter");
-  const sectionSel = $("sectionFilter");
-  if (!sectionSel) return;
-
-  const sbu = sbuSel ? sbuSel.value : "";
-  const filtered = sbu ? rawData.filter(r => r["SBU"] === sbu) : rawData;
-  const sections = [...new Set(filtered.map(r => r["Section"]).filter(Boolean))].sort();
-  sectionSel.innerHTML = `<option value="">All Sections</option>` +
-    sections.map(s => `<option value="${s}">${s}</option>`).join("");
-}
-
-function getFiltered() {
-  const sbu     = $("sbuFilter")?.value     || "";
-  const section = $("sectionFilter")?.value || "";
-
-  return rawData.filter(r =>
-    (!sbu     || r["SBU"]     === sbu) &&
-    (!section || r["Section"] === section)
-  );
-}
-
+// ---------- Helpers ----------
 function avg(arr, key) {
   const vals = arr.map(r => toNum(r[key])).filter(v => !isNaN(v));
   return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
@@ -152,7 +96,7 @@ const normPct = (v) => (v > 0 && v <= 1 ? v * 100 : v);
 
 // ---------- Dashboard update ----------
 function updateDashboard() {
-  const data = getFiltered();
+  const data = rawData; // 🆕 No filters – use full dataset
 
   setText("kpiOEE",    fmtPct(avg(data, "OEE")));
   setText("kpiOutput", sum(data, "Actual Output").toLocaleString(undefined, {maximumFractionDigits: 0}));
@@ -167,18 +111,15 @@ function updateDashboard() {
   renderTable(data);
 }
 
-// 🆕 Returns sorted unique VALID years (4-digit, from column U) — no "None"/"ne"/blanks
 function getYears(data) {
   return [...new Set(data.map(r => r.__year).filter(y => y && /^\d{4}$/.test(y)))]
            .sort((a, b) => toNum(a) - toNum(b));
 }
-
-// Only keep rows that have a valid year (drops "None"/blanks from charts)
 function withValidYear(data) {
   return data.filter(r => r.__year && /^\d{4}$/.test(r.__year));
 }
 
-// ---------- Charts (all year-based, single value per year) ----------
+// ---------- Charts ----------
 function renderCharts(data) {
   Object.values(charts).forEach(c => c && c.destroy());
   charts = {};
@@ -189,10 +130,7 @@ function renderCharts(data) {
   // ---- 1. OEE Trend by Year ----
   const oeeEl = $("oeeTrend");
   if (oeeEl) {
-    const oeeByYear = years.map(y => {
-      const rows = cleanData.filter(r => r.__year === y);
-      return normPct(avg(rows, "OEE"));
-    });
+    const oeeByYear = years.map(y => normPct(avg(cleanData.filter(r => r.__year === y), "OEE")));
     charts.oee = new Chart(oeeEl, {
       type: "line",
       data: { labels: years, datasets: [{
@@ -259,39 +197,44 @@ function renderCharts(data) {
     });
   }
 
-  // ---- 4. Year-over-Year OEE Comparison by SBU / Section ----
+  // ---- 4. Year-over-Year OEE Comparison – ALL Sections ----
   renderYearComparison(cleanData);
 }
 
-// ---------- Year Comparison Chart ----------
+// ---------- Year Comparison Chart (all sections, all years) ----------
 function renderYearComparison(data) {
   const el = $("yearCompare");
   if (!el) return;
 
-  const sbuSel     = $("sbuFilter")?.value || "";
-  const sectionSel = $("sectionFilter")?.value || "";
-
-  const groupKey = sectionSel ? "Section" : (sbuSel ? "Section" : "SBU");
+  // Always group by Section (across all SBUs)
+  const groupKey = "Section";
 
   const years  = getYears(data);
   const groups = [...new Set(data.map(r => r[groupKey]).filter(Boolean))].sort();
 
-  const colorPalette = [
-    "#667eea", "#48bb78", "#ed8936", "#4299e1", "#e53e3e",
-    "#38b2ac", "#9f7aea", "#f56565", "#ecc94b", "#38a169"
-  ];
+  // Year colors – fixed mapping for consistency
+  const yearColors = {
+    "2024": "#667eea",
+    "2025": "#48bb78",
+    "2026": "#ed8936",
+    "2027": "#4299e1",
+    "2028": "#e53e3e"
+  };
+  const fallback = ["#9f7aea", "#f56565", "#ecc94b", "#38a169", "#38b2ac"];
 
   const datasets = years.map((yr, idx) => {
     const dataForYear = groups.map(g => {
       const rows = data.filter(r => r.__year === yr && r[groupKey] === g);
       return normPct(avg(rows, "OEE"));
     });
+    const color = yearColors[yr] || fallback[idx % fallback.length];
     return {
       label: yr,
       data: dataForYear,
-      backgroundColor: colorPalette[idx % colorPalette.length],
-      borderColor: colorPalette[idx % colorPalette.length],
-      borderWidth: 1
+      backgroundColor: color,
+      borderColor: color,
+      borderWidth: 1,
+      borderRadius: 4
     };
   });
 
@@ -304,13 +247,26 @@ function renderYearComparison(data) {
       plugins: {
         title: {
           display: true,
-          text: `Year-over-Year OEE % Comparison by ${groupKey}`
+          text: "Year-over-Year OEE % Comparison – All Sections",
+          font: { size: 16, weight: "bold" }
         },
-        legend: { position: "top" }
+        legend: { position: "top" },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`
+          }
+        }
       },
       scales: {
-        y: { beginAtZero: true, max: 100, title: { display: true, text: "OEE %" } },
-        x: { title: { display: true, text: groupKey } }
+        y: {
+          beginAtZero: true,
+          max: 100,
+          title: { display: true, text: "OEE %" },
+          ticks: { stepSize: 10 }
+        },
+        x: {
+          title: { display: true, text: "Section" }
+        }
       }
     }
   });
