@@ -15,7 +15,6 @@ const toNum = (v) => {
 Papa.parse(CSV_URL, {
   download: true,
   complete: (res) => {
-    // Headers are at row 17 (index 16), data starts at row 18 (index 17)
     const rows = res.data;
     const headerRow = rows[16];
     const dataRows = rows.slice(17).filter(r => r[0] && r[0].trim() !== "");
@@ -33,23 +32,39 @@ Papa.parse(CSV_URL, {
 });
 
 function initFilters() {
-  const sbuSel = document.getElementById("sbuFilter");
+  const sbuSel   = document.getElementById("sbuFilter");
   const monthSel = document.getElementById("monthFilter");
+  const yearSel  = document.getElementById("yearFilter");
 
+  // SBU options
   const sbus = [...new Set(rawData.map(r => r["SBU"]).filter(Boolean))].sort();
   sbuSel.innerHTML = `<option value="">All SBUs</option>` +
     sbus.map(s => `<option value="${s}">${s}</option>`).join("");
 
+  // Month options
   const months = [...new Set(rawData.map(r => r["Month"]).filter(Boolean))];
   monthSel.innerHTML = `<option value="">All Months</option>` +
     months.map(m => `<option value="${m}">${m}</option>`).join("");
 
+  // ✅ Year options (sorted numerically)
+  const years = [...new Set(rawData.map(r => r["Year"]).filter(Boolean))]
+                  .sort((a, b) => toNum(a) - toNum(b));
+  yearSel.innerHTML = `<option value="">All Years</option>` +
+    years.map(y => `<option value="${y}">${y}</option>`).join("");
+
+  // Listeners
   sbuSel.addEventListener("change", () => { populateSections(); updateDashboard(); });
   document.getElementById("sectionFilter").addEventListener("change", updateDashboard);
   monthSel.addEventListener("change", updateDashboard);
+  yearSel.addEventListener("change", updateDashboard);   // ✅ new
+
   document.getElementById("resetBtn").addEventListener("click", () => {
-    sbuSel.value = ""; monthSel.value = "";
-    populateSections(); updateDashboard();
+    sbuSel.value = "";
+    monthSel.value = "";
+    yearSel.value = "";                                  // ✅ reset year too
+    document.getElementById("sectionFilter").value = "";
+    populateSections();
+    updateDashboard();
   });
 
   populateSections();
@@ -65,13 +80,16 @@ function populateSections() {
 }
 
 function getFiltered() {
-  const sbu = document.getElementById("sbuFilter").value;
+  const sbu     = document.getElementById("sbuFilter").value;
   const section = document.getElementById("sectionFilter").value;
-  const month = document.getElementById("monthFilter").value;
+  const month   = document.getElementById("monthFilter").value;
+  const year    = document.getElementById("yearFilter").value;   // ✅ new
+
   return rawData.filter(r =>
-    (!sbu || r["SBU"] === sbu) &&
+    (!sbu     || r["SBU"]     === sbu)     &&
     (!section || r["Section"] === section) &&
-    (!month || r["Month"] === month)
+    (!month   || r["Month"]   === month)   &&
+    (!year    || String(r["Year"]).trim() === String(year).trim()) // ✅ new
   );
 }
 
@@ -87,12 +105,12 @@ function updateDashboard() {
   const data = getFiltered();
 
   // KPIs
-  document.getElementById("kpiOEE").textContent = (avg(data, "OEE") * (avg(data,"OEE") < 1 ? 100 : 1)).toFixed(1) + "%";
-  document.getElementById("kpiAV").textContent = (avg(data, "AV") * (avg(data,"AV") < 1 ? 100 : 1)).toFixed(1) + "%";
-  document.getElementById("kpiPerf").textContent = (avg(data, "Perf") * (avg(data,"Perf") < 1 ? 100 : 1)).toFixed(1) + "%";
+  document.getElementById("kpiOEE").textContent     = (avg(data, "OEE")     * (avg(data,"OEE")     < 1 ? 100 : 1)).toFixed(1) + "%";
+  document.getElementById("kpiAV").textContent      = (avg(data, "AV")      * (avg(data,"AV")      < 1 ? 100 : 1)).toFixed(1) + "%";
+  document.getElementById("kpiPerf").textContent    = (avg(data, "Perf")    * (avg(data,"Perf")    < 1 ? 100 : 1)).toFixed(1) + "%";
   document.getElementById("kpiQuality").textContent = (avg(data, "Quality") * (avg(data,"Quality") < 1 ? 100 : 1)).toFixed(1) + "%";
-  document.getElementById("kpiOutput").textContent = sum(data, "Actual Output").toLocaleString(undefined, {maximumFractionDigits: 0});
-  document.getElementById("kpiCount").textContent = data.length;
+  document.getElementById("kpiOutput").textContent  = sum(data, "Actual Output").toLocaleString(undefined, {maximumFractionDigits: 0});
+  document.getElementById("kpiCount").textContent   = data.length;
 
   renderCharts(data);
   renderTable(data);
@@ -101,7 +119,6 @@ function updateDashboard() {
 function renderCharts(data) {
   const labels = data.map(r => r["Month"]);
 
-  // Destroy old charts
   Object.values(charts).forEach(c => c && c.destroy());
 
   // 1. OEE Trend
@@ -126,9 +143,9 @@ function renderCharts(data) {
     data: {
       labels,
       datasets: [
-        { label: "Availability", data: data.map(r => toNum(r["AV"]) < 1 ? toNum(r["AV"])*100 : toNum(r["AV"])), backgroundColor: "#48bb78" },
-        { label: "Performance", data: data.map(r => toNum(r["Perf"]) < 1 ? toNum(r["Perf"])*100 : toNum(r["Perf"])), backgroundColor: "#ed8936" },
-        { label: "Quality", data: data.map(r => toNum(r["Quality"]) < 1 ? toNum(r["Quality"])*100 : toNum(r["Quality"])), backgroundColor: "#4299e1" }
+        { label: "Availability", data: data.map(r => toNum(r["AV"])      < 1 ? toNum(r["AV"])*100      : toNum(r["AV"])),      backgroundColor: "#48bb78" },
+        { label: "Performance",  data: data.map(r => toNum(r["Perf"])    < 1 ? toNum(r["Perf"])*100    : toNum(r["Perf"])),    backgroundColor: "#ed8936" },
+        { label: "Quality",      data: data.map(r => toNum(r["Quality"]) < 1 ? toNum(r["Quality"])*100 : toNum(r["Quality"])), backgroundColor: "#4299e1" }
       ]
     },
     options: { responsive: true, maintainAspectRatio: false,
@@ -141,7 +158,7 @@ function renderCharts(data) {
     data: {
       labels,
       datasets: [
-        { label: "Target", data: data.map(r => toNum(r["Target"])), backgroundColor: "#a0aec0" },
+        { label: "Target",        data: data.map(r => toNum(r["Target"])),        backgroundColor: "#a0aec0" },
         { label: "Actual Output", data: data.map(r => toNum(r["Actual Output"])), backgroundColor: "#38b2ac" }
       ]
     },
