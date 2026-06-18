@@ -14,7 +14,7 @@
     <p class="subtitle">Live data from Google Sheets</p>
   </header>
 
-  <!-- 🆕 SBU filter only -->
+  <!-- SBU filter only -->
   <section class="filters">
     <div class="filter-group">
       <label for="sbuFilter">SBU</label>
@@ -38,11 +38,11 @@
     <div class="kpi-card"><h3>Records</h3><p id="kpiCount">—</p></div>
   </section>
 
-  <!-- Charts -->
+  <!-- Charts: each section+year chart gets full width for clarity -->
   <section class="charts">
-    <div class="chart-box"><canvas id="oeeTrend"></canvas></div>
-    <div class="chart-box"><canvas id="targetVsActual"></canvas></div>
-    <div class="chart-box"><canvas id="mtbfMttr"></canvas></div>
+    <div class="chart-box chart-wide"><canvas id="oeeTrend"></canvas></div>
+    <div class="chart-box chart-wide"><canvas id="targetVsActual"></canvas></div>
+    <div class="chart-box chart-wide"><canvas id="mtbfMttr"></canvas></div>
     <div class="chart-box chart-wide"><canvas id="yearCompare"></canvas></div>
   </section>
 
