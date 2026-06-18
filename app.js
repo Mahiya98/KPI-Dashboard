@@ -36,6 +36,24 @@ const sumByCol = (arr, letter) => {
   return arr.map(r => toNum(colVal(r, letter))).filter(v => !isNaN(v)).reduce((a,b) => a+b, 0);
 };
 
+// 🆕 Get clean year from COLUMN U
+function getRowYear(row) {
+  const v = colVal(row, "U");
+  if (v == null) return "";
+  const s = String(v).trim();
+  // Skip junk values
+  if (!s || /^(none|ne|null|n\/a|-)$/i.test(s)) return "";
+  // Pull only digits (handles "2024", "24", "Year 2024", etc.)
+  const m = s.match(/(\d{2,4})/);
+  if (!m) return "";
+  let yr = m[1];
+  if (yr.length === 2) yr = "20" + yr; // 24 → 2024
+  // Sanity check: keep realistic years
+  const num = parseInt(yr, 10);
+  if (num < 2000 || num > 2100) return "";
+  return yr;
+}
+
 // ---------- Load CSV ----------
 Papa.parse(CSV_URL, {
   download: true,
@@ -54,10 +72,11 @@ Papa.parse(CSV_URL, {
         headerRow.forEach((h, i) => {
           if (h) obj[String(h).trim()] = r[i];
         });
+        obj.__year = getRowYear(obj); // 🆕 attach clean year from col U
         return obj;
       });
 
-      console.log("✅ Loaded rows:", rawData.length, "Sample:", rawData[0]);
+      console.log("✅ Loaded rows:", rawData.length, "Sample:", rawData[0], "Year (col U):", rawData[0]?.__year);
 
       initFilters();
       updateDashboard();
@@ -148,24 +167,30 @@ function updateDashboard() {
   renderTable(data);
 }
 
-// ---------- Group helper: returns sorted unique years from data ----------
+// 🆕 Returns sorted unique VALID years (4-digit, from column U) — no "None"/"ne"/blanks
 function getYears(data) {
-  return [...new Set(data.map(r => String(r["Year"]).trim()).filter(Boolean))]
+  return [...new Set(data.map(r => r.__year).filter(y => y && /^\d{4}$/.test(y)))]
            .sort((a, b) => toNum(a) - toNum(b));
 }
 
-// ---------- Charts (all YEAR-based now) ----------
+// Only keep rows that have a valid year (drops "None"/blanks from charts)
+function withValidYear(data) {
+  return data.filter(r => r.__year && /^\d{4}$/.test(r.__year));
+}
+
+// ---------- Charts (all year-based, single value per year) ----------
 function renderCharts(data) {
   Object.values(charts).forEach(c => c && c.destroy());
   charts = {};
 
-  const years = getYears(data);
+  const cleanData = withValidYear(data);
+  const years = getYears(cleanData);
 
   // ---- 1. OEE Trend by Year ----
   const oeeEl = $("oeeTrend");
   if (oeeEl) {
     const oeeByYear = years.map(y => {
-      const rows = data.filter(r => String(r["Year"]).trim() === y);
+      const rows = cleanData.filter(r => r.__year === y);
       return normPct(avg(rows, "OEE"));
     });
     charts.oee = new Chart(oeeEl, {
@@ -176,12 +201,16 @@ function renderCharts(data) {
         borderColor: "#667eea",
         backgroundColor: "rgba(102,126,234,0.2)",
         fill: true, tension: 0.3,
-        pointRadius: 6, pointHoverRadius: 8
+        pointRadius: 7, pointHoverRadius: 9,
+        borderWidth: 3
       }]},
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: { title: { display: true, text: "OEE % – Year-over-Year Trend" } },
-        scales: { y: { beginAtZero: true, title: { display: true, text: "OEE %" } } }
+        scales: {
+          y: { beginAtZero: true, max: 100, title: { display: true, text: "OEE %" } },
+          x: { title: { display: true, text: "Year" } }
+        }
       }
     });
   }
@@ -189,8 +218,8 @@ function renderCharts(data) {
   // ---- 2. Target vs Actual Output by Year ----
   const taEl = $("targetVsActual");
   if (taEl) {
-    const targetByYear = years.map(y => sum(data.filter(r => String(r["Year"]).trim() === y), "Target"));
-    const actualByYear = years.map(y => sum(data.filter(r => String(r["Year"]).trim() === y), "Actual Output"));
+    const targetByYear = years.map(y => sum(cleanData.filter(r => r.__year === y), "Target"));
+    const actualByYear = years.map(y => sum(cleanData.filter(r => r.__year === y), "Actual Output"));
     charts.ta = new Chart(taEl, {
       type: "bar",
       data: { labels: years, datasets: [
@@ -200,7 +229,10 @@ function renderCharts(data) {
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: { title: { display: true, text: "Target vs Actual Output – by Year" } },
-        scales: { y: { beginAtZero: true } }
+        scales: {
+          y: { beginAtZero: true },
+          x: { title: { display: true, text: "Year" } }
+        }
       }
     });
   }
@@ -208,8 +240,8 @@ function renderCharts(data) {
   // ---- 3. MTBF vs MTTR by Year ----
   const mmEl = $("mtbfMttr");
   if (mmEl) {
-    const mtbfByYear = years.map(y => avgByCol(data.filter(r => String(r["Year"]).trim() === y), "O"));
-    const mttrByYear = years.map(y => avgByCol(data.filter(r => String(r["Year"]).trim() === y), "N"));
+    const mtbfByYear = years.map(y => avgByCol(cleanData.filter(r => r.__year === y), "O"));
+    const mttrByYear = years.map(y => avgByCol(cleanData.filter(r => r.__year === y), "N"));
     charts.mm = new Chart(mmEl, {
       type: "bar",
       data: { labels: years, datasets: [
@@ -219,13 +251,16 @@ function renderCharts(data) {
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: { title: { display: true, text: "MTBF vs MTTR – by Year" } },
-        scales: { y: { beginAtZero: true } }
+        scales: {
+          y: { beginAtZero: true },
+          x: { title: { display: true, text: "Year" } }
+        }
       }
     });
   }
 
   // ---- 4. Year-over-Year OEE Comparison by SBU / Section ----
-  renderYearComparison(data);
+  renderYearComparison(cleanData);
 }
 
 // ---------- Year Comparison Chart ----------
@@ -236,10 +271,6 @@ function renderYearComparison(data) {
   const sbuSel     = $("sbuFilter")?.value || "";
   const sectionSel = $("sectionFilter")?.value || "";
 
-  // Decide grouping:
-  // - If a Section is chosen → group by Section (only one group)
-  // - Else if SBU is chosen → group by Section under that SBU
-  // - Else → group by SBU
   const groupKey = sectionSel ? "Section" : (sbuSel ? "Section" : "SBU");
 
   const years  = getYears(data);
@@ -252,9 +283,7 @@ function renderYearComparison(data) {
 
   const datasets = years.map((yr, idx) => {
     const dataForYear = groups.map(g => {
-      const rows = data.filter(r =>
-        String(r["Year"]).trim() === yr && r[groupKey] === g
-      );
+      const rows = data.filter(r => r.__year === yr && r[groupKey] === g);
       return normPct(avg(rows, "OEE"));
     });
     return {
@@ -280,7 +309,7 @@ function renderYearComparison(data) {
         legend: { position: "top" }
       },
       scales: {
-        y: { beginAtZero: true, title: { display: true, text: "OEE %" } },
+        y: { beginAtZero: true, max: 100, title: { display: true, text: "OEE %" } },
         x: { title: { display: true, text: groupKey } }
       }
     }
@@ -292,7 +321,7 @@ function renderTable(data) {
   const table = $("dataTable");
   if (!table) return;
   if (!data.length) { table.innerHTML = "<tr><td>No data</td></tr>"; return; }
-  const keys = Object.keys(data[0]).filter(k => k && k !== "__raw");
+  const keys = Object.keys(data[0]).filter(k => k && k !== "__raw" && k !== "__year");
   const head = `<thead><tr>${keys.map(k => `<th>${k}</th>`).join("")}</tr></thead>`;
   const body = `<tbody>${data.map(r => `<tr>${keys.map(k => `<td>${r[k] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody>`;
   table.innerHTML = head + body;
