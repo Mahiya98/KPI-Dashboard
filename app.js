@@ -1,5 +1,5 @@
 // ⚠️ REPLACE WITH YOUR PUBLISHED CSV URL (File → Share → Publish to web → CSV)
-const CSV_URL = "PASTE_YOUR_PUBLISHED_CSV_URL_HERE";
+const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQOtlTSnR-ePaSMoaB60KUjLcKSTyptk68WXWIbz4VF52B_On-9d6R-z6sZOfVPm5qxlKC--M1r59PQ/pub?gid=0&single=true&output=csv";
 
 let rawData = [];
 let charts = {};
