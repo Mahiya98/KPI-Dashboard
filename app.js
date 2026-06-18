@@ -32,6 +32,10 @@ const avgByCol = (arr, letter) => {
   return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
 };
 
+const sumByCol = (arr, letter) => {
+  return arr.map(r => toNum(colVal(r, letter))).filter(v => !isNaN(v)).reduce((a,b) => a+b, 0);
+};
+
 // ---------- Load CSV ----------
 Papa.parse(CSV_URL, {
   download: true,
@@ -65,12 +69,10 @@ Papa.parse(CSV_URL, {
   error: (err) => alert("Error loading data: " + err.message)
 });
 
-// ---------- Filters ----------
+// ---------- Filters (SBU & Section only) ----------
 function initFilters() {
   const sbuSel     = $("sbuFilter");
   const sectionSel = $("sectionFilter");
-  const monthSel   = $("monthFilter");
-  const yearSel    = $("yearFilter");
 
   if (sbuSel) {
     const sbus = [...new Set(rawData.map(r => r["SBU"]).filter(Boolean))].sort();
@@ -81,28 +83,11 @@ function initFilters() {
 
   if (sectionSel) sectionSel.addEventListener("change", updateDashboard);
 
-  if (monthSel) {
-    const months = [...new Set(rawData.map(r => r["Month"]).filter(Boolean))];
-    monthSel.innerHTML = `<option value="">All Months</option>` +
-      months.map(m => `<option value="${m}">${m}</option>`).join("");
-    monthSel.addEventListener("change", updateDashboard);
-  }
-
-  if (yearSel) {
-    const years = [...new Set(rawData.map(r => r["Year"]).filter(Boolean))]
-                    .sort((a, b) => toNum(a) - toNum(b));
-    yearSel.innerHTML = `<option value="">All Years</option>` +
-      years.map(y => `<option value="${y}">${y}</option>`).join("");
-    yearSel.addEventListener("change", updateDashboard);
-  }
-
   const resetBtn = $("resetBtn");
   if (resetBtn) {
     resetBtn.addEventListener("click", () => {
       if (sbuSel)     sbuSel.value = "";
       if (sectionSel) sectionSel.value = "";
-      if (monthSel)   monthSel.value = "";
-      if (yearSel)    yearSel.value = "";
       populateSections();
       updateDashboard();
     });
@@ -126,14 +111,10 @@ function populateSections() {
 function getFiltered() {
   const sbu     = $("sbuFilter")?.value     || "";
   const section = $("sectionFilter")?.value || "";
-  const month   = $("monthFilter")?.value   || "";
-  const year    = $("yearFilter")?.value    || "";
 
   return rawData.filter(r =>
     (!sbu     || r["SBU"]     === sbu) &&
-    (!section || r["Section"] === section) &&
-    (!month   || String(r["Month"]).trim() === String(month).trim()) &&
-    (!year    || String(r["Year"]).trim()  === String(year).trim())
+    (!section || r["Section"] === section)
   );
 }
 
@@ -148,12 +129,12 @@ const setText = (id, txt) => { const el = $(id); if (el) el.textContent = txt; }
 
 const fmtPct = (v) => (v * (v > 0 && v <= 1 ? 100 : 1)).toFixed(1) + "%";
 const fmtNum = (v) => (isNaN(v) ? "—" : v.toFixed(1));
+const normPct = (v) => (v > 0 && v <= 1 ? v * 100 : v);
 
 // ---------- Dashboard update ----------
 function updateDashboard() {
   const data = getFiltered();
 
-  // KPIs (kept: OEE, Output, Records, NPT, MTTR, MTBF, CapUT)
   setText("kpiOEE",    fmtPct(avg(data, "OEE")));
   setText("kpiOutput", sum(data, "Actual Output").toLocaleString(undefined, {maximumFractionDigits: 0}));
   setText("kpiCount",  data.length);
@@ -167,52 +148,87 @@ function updateDashboard() {
   renderTable(data);
 }
 
-// ---------- Charts ----------
+// ---------- Group helper: returns sorted unique years from data ----------
+function getYears(data) {
+  return [...new Set(data.map(r => String(r["Year"]).trim()).filter(Boolean))]
+           .sort((a, b) => toNum(a) - toNum(b));
+}
+
+// ---------- Charts (all YEAR-based now) ----------
 function renderCharts(data) {
   Object.values(charts).forEach(c => c && c.destroy());
   charts = {};
 
-  const labels = data.map(r => r["Month"]);
+  const years = getYears(data);
 
-  // ---- OEE Trend (kept) ----
+  // ---- 1. OEE Trend by Year ----
   const oeeEl = $("oeeTrend");
-  if (oeeEl) charts.oee = new Chart(oeeEl, {
-    type: "line",
-    data: { labels, datasets: [{
-      label: "OEE %",
-      data: data.map(r => toNum(r["OEE"]) < 1 ? toNum(r["OEE"])*100 : toNum(r["OEE"])),
-      borderColor: "#667eea", backgroundColor: "rgba(102,126,234,0.2)", fill: true, tension: 0.3
-    }]},
-    options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: "OEE Trend" } } }
-  });
+  if (oeeEl) {
+    const oeeByYear = years.map(y => {
+      const rows = data.filter(r => String(r["Year"]).trim() === y);
+      return normPct(avg(rows, "OEE"));
+    });
+    charts.oee = new Chart(oeeEl, {
+      type: "line",
+      data: { labels: years, datasets: [{
+        label: "Avg OEE %",
+        data: oeeByYear,
+        borderColor: "#667eea",
+        backgroundColor: "rgba(102,126,234,0.2)",
+        fill: true, tension: 0.3,
+        pointRadius: 6, pointHoverRadius: 8
+      }]},
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { title: { display: true, text: "OEE % – Year-over-Year Trend" } },
+        scales: { y: { beginAtZero: true, title: { display: true, text: "OEE %" } } }
+      }
+    });
+  }
 
-  // ---- Target vs Actual (kept) ----
+  // ---- 2. Target vs Actual Output by Year ----
   const taEl = $("targetVsActual");
-  if (taEl) charts.ta = new Chart(taEl, {
-    type: "bar",
-    data: { labels, datasets: [
-      { label: "Target",        data: data.map(r => toNum(r["Target"])),        backgroundColor: "#a0aec0" },
-      { label: "Actual Output", data: data.map(r => toNum(r["Actual Output"])), backgroundColor: "#38b2ac" }
-    ]},
-    options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: "Target vs Actual Output" } } }
-  });
+  if (taEl) {
+    const targetByYear = years.map(y => sum(data.filter(r => String(r["Year"]).trim() === y), "Target"));
+    const actualByYear = years.map(y => sum(data.filter(r => String(r["Year"]).trim() === y), "Actual Output"));
+    charts.ta = new Chart(taEl, {
+      type: "bar",
+      data: { labels: years, datasets: [
+        { label: "Target",        data: targetByYear, backgroundColor: "#a0aec0" },
+        { label: "Actual Output", data: actualByYear, backgroundColor: "#38b2ac" }
+      ]},
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { title: { display: true, text: "Target vs Actual Output – by Year" } },
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+  }
 
-  // ---- MTBF vs MTTR (kept) ----
+  // ---- 3. MTBF vs MTTR by Year ----
   const mmEl = $("mtbfMttr");
-  if (mmEl) charts.mm = new Chart(mmEl, {
-    type: "line",
-    data: { labels, datasets: [
-      { label: "MTBF", data: data.map(r => toNum(colVal(r, "O"))), borderColor: "#38a169", backgroundColor: "rgba(56,161,105,0.1)", fill: true, tension: 0.3 },
-      { label: "MTTR", data: data.map(r => toNum(colVal(r, "N"))), borderColor: "#e53e3e", backgroundColor: "rgba(229,62,62,0.1)", fill: true, tension: 0.3 }
-    ]},
-    options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: "MTBF vs MTTR" } } }
-  });
+  if (mmEl) {
+    const mtbfByYear = years.map(y => avgByCol(data.filter(r => String(r["Year"]).trim() === y), "O"));
+    const mttrByYear = years.map(y => avgByCol(data.filter(r => String(r["Year"]).trim() === y), "N"));
+    charts.mm = new Chart(mmEl, {
+      type: "bar",
+      data: { labels: years, datasets: [
+        { label: "MTBF", data: mtbfByYear, backgroundColor: "#38a169" },
+        { label: "MTTR", data: mttrByYear, backgroundColor: "#e53e3e" }
+      ]},
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { title: { display: true, text: "MTBF vs MTTR – by Year" } },
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+  }
 
-  // ---- 🆕 Year-over-Year Comparison by SBU / Section ----
+  // ---- 4. Year-over-Year OEE Comparison by SBU / Section ----
   renderYearComparison(data);
 }
 
-// ---------- 🆕 Year Comparison Chart ----------
+// ---------- Year Comparison Chart ----------
 function renderYearComparison(data) {
   const el = $("yearCompare");
   if (!el) return;
@@ -226,13 +242,9 @@ function renderYearComparison(data) {
   // - Else → group by SBU
   const groupKey = sectionSel ? "Section" : (sbuSel ? "Section" : "SBU");
 
-  // Collect unique years (sorted) and groups
-  const years = [...new Set(data.map(r => String(r["Year"]).trim()).filter(Boolean))]
-                  .sort((a,b) => toNum(a) - toNum(b));
+  const years  = getYears(data);
   const groups = [...new Set(data.map(r => r[groupKey]).filter(Boolean))].sort();
 
-  // For each group + year, average the OEE
-  // (You can change "OEE" to any other KPI, e.g. "Actual Output" with sum())
   const colorPalette = [
     "#667eea", "#48bb78", "#ed8936", "#4299e1", "#e53e3e",
     "#38b2ac", "#9f7aea", "#f56565", "#ecc94b", "#38a169"
@@ -243,9 +255,7 @@ function renderYearComparison(data) {
       const rows = data.filter(r =>
         String(r["Year"]).trim() === yr && r[groupKey] === g
       );
-      const v = avg(rows, "OEE");
-      // Normalize to %
-      return v > 0 && v <= 1 ? v * 100 : v;
+      return normPct(avg(rows, "OEE"));
     });
     return {
       label: yr,
@@ -270,13 +280,8 @@ function renderYearComparison(data) {
         legend: { position: "top" }
       },
       scales: {
-        y: {
-          beginAtZero: true,
-          title: { display: true, text: "OEE %" }
-        },
-        x: {
-          title: { display: true, text: groupKey }
-        }
+        y: { beginAtZero: true, title: { display: true, text: "OEE %" } },
+        x: { title: { display: true, text: groupKey } }
       }
     }
   });
