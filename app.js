@@ -37,28 +37,105 @@ function getRowYear(row) {
   return (num >= 2000 && num <= 2100) ? yr : "";
 }
 
-console.log("⏳ Fetching CSV…");
-Papa.parse(CSV_URL, {
-  download: true,
-  complete: (res) => {
-    try {
-      const rows = res.data;
-      const headerRow = rows[16];
-      if (!headerRow) { alert("Header row not found at row 17."); return; }
-      const dataRows = rows.slice(17).filter(r => r[0] && String(r[0]).trim() !== "");
-      rawData = dataRows.map(r => {
-        const obj = { __raw: r };
-        headerRow.forEach((h, i) => { if (h) obj[String(h).trim()] = r[i]; });
-        obj.__year = getRowYear(obj);
-        obj.__section = getRowSection(obj);
+console.log("⏳ Fetching secure data…");
+
+
+fetch(API_URL)
+.then(response => {
+
+    if(!response.ok){
+        throw new Error("HTTP Error " + response.status);
+    }
+
+    return response.json();
+
+})
+.then(result => {
+
+
+    console.log("API Response:", result);
+
+
+    if(result.error){
+
+        alert(result.error);
+        return;
+
+    }
+
+
+    const rows = result.data;
+
+
+    const headerRow = rows[16];
+
+
+    if(!headerRow){
+
+        alert("Header row not found at row 17");
+        return;
+
+    }
+
+
+    const dataRows = rows
+    .slice(17)
+    .filter(r => r[0] && String(r[0]).trim() !== "");
+
+
+    rawData = dataRows.map(r=>{
+
+
+        const obj={
+            __raw:r
+        };
+
+
+        headerRow.forEach((h,i)=>{
+
+            if(h){
+
+                obj[String(h).trim()] = r[i];
+
+            }
+
+        });
+
+
+        obj.__year=getRowYear(obj);
+        obj.__section=getRowSection(obj);
+
+
         return obj;
-      });
-      console.log("✅ Loaded:", rawData.length, "rows | Sample:", rawData[0]);
-      initFilters();
-      updateDashboard();
-    } catch (e) { console.error(e); alert("Parse error: " + e.message); }
-  },
-  error: (err) => { console.error(err); alert("Load error: " + err.message); }
+
+
+    });
+
+
+    console.log(
+        "✅ Loaded rows:",
+        rawData.length
+    );
+
+
+    initFilters();
+    updateDashboard();
+
+
+})
+.catch(error=>{
+
+    console.error(
+        "API Loading Error:",
+        error
+    );
+
+
+    alert(
+      "Dashboard failed to load: " + error.message
+    );
+
+
 });
 
 function initFilters() {
