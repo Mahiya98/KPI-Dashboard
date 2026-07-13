@@ -1,5 +1,5 @@
 // ⚠️ REPLACE WITH YOUR PUBLISHED CSV URL (File → Share → Publish to web → CSV)
-const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQOtlTSnR-ePaSMoaB60KUjLcKSTyptk68WXWIbz4VF52B_On-9d6R-z6sZOfVPm5qxlKC--M1r59PQ/pub?gid=0&single=true&output=csv";
+const API_URL = "https://script.google.com/macros/s/AKfycbyHDbXZki3qP76fWMTUIoVMs4OqC6WtSC49DokXzsBzEZS8miKIgQdtftZeC6QwK6QEkw/exec";
 
 let rawData = [];
 let charts = {};
