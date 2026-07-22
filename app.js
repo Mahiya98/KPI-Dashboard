@@ -1,5 +1,9 @@
-// ⚠️ REPLACE WITH YOUR PUBLISHED CSV URL (File → Share → Publish to web → CSV)
-const API_URL = "https://script.google.com/macros/s/AKfycbyHDbXZki3qP76fWMTUIoVMs4OqC6WtSC49DokXzsBzEZS8miKIgQdtftZeC6QwK6QEkw/exec";
+// ✅ Fetches directly from the Google Sheet — no Apps Script needed.
+// REQUIREMENT: the sheet must be shared as "Anyone with the link can view"
+// (File → Share → General access → Anyone with the link).
+const SHEET_ID = "11WBzE3ep6CtFnFO7mcOV4FdjWmKXT5Pom_bC0douotQ";
+const GID = "0"; // change if your data is on a different tab
+const API_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
 
 let rawData = [];
 let charts = {};
@@ -37,106 +41,75 @@ function getRowYear(row) {
   return (num >= 2000 && num <= 2100) ? yr : "";
 }
 
-console.log("⏳ Fetching secure data…");
+// ---- Minimal CSV parser (handles quoted fields, commas inside quotes, escaped quotes) ----
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
 
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const next = text[i + 1];
+
+    if (inQuotes) {
+      if (c === '"' && next === '"') { field += '"'; i++; }
+      else if (c === '"') { inQuotes = false; }
+      else { field += c; }
+    } else {
+      if (c === '"') { inQuotes = true; }
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\r") { /* skip */ }
+      else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+      else { field += c; }
+    }
+  }
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+console.log("⏳ Fetching sheet data…");
 
 fetch(API_URL)
-.then(response => {
-
-    if(!response.ok){
-        throw new Error("HTTP Error " + response.status);
+  .then(response => {
+    if (!response.ok) {
+      throw new Error("HTTP Error " + response.status + " — is the sheet shared as 'Anyone with the link can view'?");
     }
+    return response.text();
+  })
+  .then(csvText => {
+    const rows = parseCSV(csvText);
 
-    return response.json();
-
-})
-.then(result => {
-
-
-    console.log("API Response:", result);
-
-
-    if(result.error){
-
-        alert(result.error);
-        return;
-
-    }
-
-
-    const rows = result.data;
-
-
+    // header is on row 17 -> index 16
     const headerRow = rows[16];
-
-
-    if(!headerRow){
-
-        alert("Header row not found at row 17");
-        return;
-
+    if (!headerRow) {
+      alert("Header row not found at row 17");
+      return;
     }
-
 
     const dataRows = rows
-    .slice(17)
-    .filter(r => r[0] && String(r[0]).trim() !== "");
+      .slice(17)
+      .filter(r => r[0] && String(r[0]).trim() !== "");
 
-
-    rawData = dataRows.map(r=>{
-
-
-        const obj={
-            __raw:r
-        };
-
-
-        headerRow.forEach((h,i)=>{
-
-            if(h){
-
-                obj[String(h).trim()] = r[i];
-
-            }
-
-        });
-
-
-        obj.__year=getRowYear(obj);
-        obj.__section=getRowSection(obj);
-
-
-        return obj;
-
-
+    rawData = dataRows.map(r => {
+      const obj = { __raw: r };
+      headerRow.forEach((h, i) => {
+        if (h) obj[String(h).trim()] = r[i];
+      });
+      obj.__year = getRowYear(obj);
+      obj.__section = getRowSection(obj);
+      return obj;
     });
 
-
-    console.log(
-        "✅ Loaded rows:",
-        rawData.length
-    );
-
+    console.log("✅ Loaded rows:", rawData.length);
 
     initFilters();
     updateDashboard();
-
-
-})
-.catch(error=>{
-
-    console.error(
-        "API Loading Error:",
-        error
-    );
-
-
-    alert(
-      "Dashboard failed to load: " + error.message
-    );
-
-
-});
+  })
+  .catch(error => {
+    console.error("Data loading error:", error);
+    alert("Dashboard failed to load: " + error.message);
+  });
 
 function initFilters() {
   const sbuSel = $("sbuFilter");
@@ -205,7 +178,6 @@ function renderCharts(data) {
   const sections = getSections(clean);
   const sbu = $("sbuFilter")?.value || "";
 
-  // 1. OEE % by Section + Year
   const oeeEl = $("oeeTrend");
   if (oeeEl) {
     charts.oee = new Chart(oeeEl, {
@@ -235,7 +207,6 @@ function renderCharts(data) {
     });
   }
 
-  // 2. Target vs Actual by Section + Year
   const taEl = $("targetVsActual");
   if (taEl) {
     const datasets = [];
@@ -269,7 +240,6 @@ function renderCharts(data) {
     });
   }
 
-  // 3. MTBF vs MTTR by Section + Year
   const mmEl = $("mtbfMttr");
   if (mmEl) {
     const datasets = [];
@@ -302,7 +272,6 @@ function renderCharts(data) {
     });
   }
 
-  // 4. Year Comparison (OEE)
   const ycEl = $("yearCompare");
   if (ycEl) {
     charts.yc = new Chart(ycEl, {
