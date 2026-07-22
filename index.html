@@ -13,46 +13,47 @@
     <h1>📊 OEE Performance Dashboard</h1>
     <p class="subtitle">Year-over-Year & Section-wise Comparison</p>
   </header>
-
   <section class="filters">
     <div class="filter-group">
       <label for="sbuFilter">SBU</label>
       <select id="sbuFilter"><option value="">Loading…</option></select>
     </div>
+    <div class="filter-group">
+      <label for="yearFilter">Year</label>
+      <select id="yearFilter"><option value="">All Years</option></select>
+    </div>
+    <div class="filter-group">
+      <label for="monthFilter">Month</label>
+      <select id="monthFilter"><option value="">All Months</option></select>
+    </div>
     <button id="resetBtn">🔄 Reset</button>
   </section>
-
   <section class="kpis kpis-top">
     <div class="kpi-card"><h3>Avg NPT %</h3><p id="kpiNPT">—</p></div>
     <div class="kpi-card"><h3>Avg MTTR</h3><p id="kpiMTTR">—</p></div>
     <div class="kpi-card"><h3>Avg MTBF</h3><p id="kpiMTBF">—</p></div>
     <div class="kpi-card"><h3>Avg Cap UT %</h3><p id="kpiCapUT">—</p></div>
   </section>
-
   <section class="kpis">
     <div class="kpi-card"><h3>Avg OEE</h3><p id="kpiOEE">—</p></div>
     <div class="kpi-card"><h3>Total Output</h3><p id="kpiOutput">—</p></div>
     <div class="kpi-card"><h3>Records</h3><p id="kpiCount">—</p></div>
   </section>
-
   <section class="charts">
     <div class="chart-box"><canvas id="oeeTrend"></canvas></div>
     <div class="chart-box"><canvas id="targetVsActual"></canvas></div>
     <div class="chart-box"><canvas id="mtbfMttr"></canvas></div>
     <div class="chart-box"><canvas id="yearCompare"></canvas></div>
   </section>
-
   <section class="table-wrap">
     <h2>Data Overview</h2>
     <div class="table-scroll">
       <table id="dataTable"></table>
     </div>
   </section>
-
   <footer>
     <p>AUTOMATED MANUFACTURING SUMMARY REPORT BY OPEX TEAM</p>
   </footer>
-
   <script src="app.js"></script>
 </body>
 </html>
