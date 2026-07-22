@@ -41,6 +41,31 @@ function getRowYear(row) {
   return (num >= 2000 && num <= 2100) ? yr : "";
 }
 
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+function getRowMonth(row) {
+  const v = colVal(row, "C");
+  if (v == null) return "";
+  const s = String(v).trim();
+  if (!s || /^(none|ne|null|n\/a|-)$/i.test(s)) return "";
+
+  // Numeric month (1-12)
+  if (/^\d{1,2}$/.test(s)) {
+    const n = parseInt(s, 10);
+    return (n >= 1 && n <= 12) ? MONTH_NAMES[n - 1] : "";
+  }
+
+  // Try matching a month name directly (full or abbreviated)
+  const lower = s.toLowerCase();
+  const found = MONTH_NAMES.find(m => lower.includes(m.toLowerCase()) || lower.includes(m.slice(0,3).toLowerCase()));
+  if (found) return found;
+
+  // Try parsing as a date string
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return MONTH_NAMES[d.getMonth()];
+
+  return "";
+}
+
 // ---- Minimal CSV parser (handles quoted fields, commas inside quotes, escaped quotes) ----
 function parseCSV(text) {
   const rows = [];
@@ -69,6 +94,8 @@ function parseCSV(text) {
 }
 
 console.log("⏳ Fetching sheet data…");
+// NOTE: add matching <select id="yearFilter"> and <select id="monthFilter">
+// elements to your HTML filters section — see chat for the exact markup.
 
 fetch(API_URL)
   .then(response => {
@@ -97,6 +124,7 @@ fetch(API_URL)
         if (h) obj[String(h).trim()] = r[i];
       });
       obj.__year = getRowYear(obj);
+      obj.__month = getRowMonth(obj);
       obj.__section = getRowSection(obj);
       return obj;
     });
@@ -119,16 +147,42 @@ function initFilters() {
       sbus.map(s => `<option value="${s}">${s}</option>`).join("");
     sbuSel.addEventListener("change", updateDashboard);
   }
+
+  const yearSel = $("yearFilter");
+  if (yearSel) {
+    const years = [...new Set(rawData.map(r => r.__year).filter(Boolean))].sort((a, b) => toNum(a) - toNum(b));
+    yearSel.innerHTML = `<option value="">All Years</option>` +
+      years.map(y => `<option value="${y}">${y}</option>`).join("");
+    yearSel.addEventListener("change", updateDashboard);
+  }
+
+  const monthSel = $("monthFilter");
+  if (monthSel) {
+    const monthsPresent = new Set(rawData.map(r => r.__month).filter(Boolean));
+    const months = MONTH_NAMES.filter(m => monthsPresent.has(m));
+    monthSel.innerHTML = `<option value="">All Months</option>` +
+      months.map(m => `<option value="${m}">${m}</option>`).join("");
+    monthSel.addEventListener("change", updateDashboard);
+  }
+
   const resetBtn = $("resetBtn");
   if (resetBtn) resetBtn.addEventListener("click", () => {
     if (sbuSel) sbuSel.value = "";
+    if (yearSel) yearSel.value = "";
+    if (monthSel) monthSel.value = "";
     updateDashboard();
   });
 }
 
 function getFiltered() {
   const sbu = $("sbuFilter")?.value || "";
-  return rawData.filter(r => !sbu || r["SBU"] === sbu);
+  const year = $("yearFilter")?.value || "";
+  const month = $("monthFilter")?.value || "";
+  return rawData.filter(r =>
+    (!sbu || r["SBU"] === sbu) &&
+    (!year || r.__year === year) &&
+    (!month || r.__month === month)
+  );
 }
 
 const avg = (arr, key) => {
