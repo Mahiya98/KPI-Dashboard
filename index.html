@@ -161,12 +161,22 @@ function pickJson(res){var r=findRows(res.structuredContent,0)||findRows(res.pay
   return r}
 function qerr(e){var c=e&&e.code;return c=='needs_reauth'?'Reconnect Supabase in claude.ai Settings, then refresh.':c=='server_not_connected'?'Add the Supabase connector in claude.ai Settings, then refresh.':c=='approval_required'||c=='not_in_manifest'?'Allow Supabase for this page when asked, then refresh.':c=='server_unavailable'?'Supabase did not answer. Try again in a moment.':'Supabase returned an error ('+(c||'unknown')+').'}
 function addSbuOptions(){var cur=$('fs').value,have={};Array.prototype.forEach.call($('fs').options,function(o){have[o.value]=1});QC.forEach(function(r){if(r.s!='(blank)'&&!have[r.s]){have[r.s]=1;$('fs').insertAdjacentHTML('beforeend','<option>'+esc(r.s)+'</option>')}});$('fs').value=cur}
+var SBURL='https://vpwbcuxwxkqvauffqooj.supabase.co',SBKEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZwd2JjdXh3eGtxdmF1ZmZxb29qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM4MjA4NjEsImV4cCI6MjA5OTM5Njg2MX0.iAoIZXl-2G7h3wm4jcYsEs6-wdN-YKTS-KbBteBBzUk';
+async function viaRest(){
+  var all=[],off=0;
+  for(;;){var r=await fetch(SBURL+'/rest/v1/qcp_audit?select=audit_date,sbu,status,section,machine_name&audit_date=not.is.null&order=id&limit=1000&offset='+off,{headers:{apikey:SBKEY,Authorization:'Bearer '+SBKEY}});
+    if(!r.ok)throw {code:'http',status:r.status};
+    var a=await r.json();all=all.concat(a);if(a.length<1000||off>200000)break;off+=1000}
+  var g={};all.forEach(function(x){var s=x.sbu||'(blank)',k=x.audit_date+'|'+s,o=g[k]||(g[k]={d:x.audit_date,s:s,mm:{},e:0,p:0});o.e++;if(x.status=='Pass')o.p++;o.mm[(x.section||'')+'|'+(x.machine_name||'')]=1});
+  return Object.keys(g).map(function(k){var o=g[k];return {d:o.d,s:o.s,m:Object.keys(o.mm).length,e:o.e,p:o.p}})}
+async function viaMcp(){var res=await MCP.callTool('Supabase','execute_sql',{project_id:PROJ,query:SQL},{cache:false});return pickJson(res)}
 async function loadQ(){
-  if(!MCP){QS={s:'err',m:'Live QCP data needs the Supabase connector, which is available when the page is opened in claude.ai.'};render();return}
   QS={s:'run',m:''};render();
-  try{var res=await MCP.callTool('Supabase','execute_sql',{project_id:PROJ,query:SQL},{cache:false});var rows=pickJson(res);
-    QBLANK=0;QC=[];rows.forEach(function(r){if(r.s=='(blank)'){QBLANK+=r.e;return}QC.push({d:r.d,s:normS(r.s),m:r.m,e:r.e,p:r.p})});
-    QS={s:'ok',m:''};addSbuOptions()}catch(e){QS={s:'err',m:e&&e.code=='unreadable'?'The QCP result could not be read. Received: '+e.peek:e&&e.code?qerr(e):'The QCP result could not be read ('+(e&&e.message||'parse error')+').'}}
+  var rows=null,err=null;
+  if(MCP){try{rows=await viaMcp()}catch(e){err=e}}
+  if(!rows){try{rows=await viaRest();err=null}catch(e2){err=err||e2}}
+  if(rows){QBLANK=0;QC=[];rows.forEach(function(r){if(r.s=='(blank)'){QBLANK+=r.e;return}QC.push({d:r.d,s:normS(r.s),m:r.m,e:r.e,p:r.p})});QS={s:'ok',m:''};addSbuOptions()}
+  else QS={s:'err',m:err&&err.code=='unreadable'?'The QCP result could not be read. Received: '+err.peek:err&&err.code=='http'?'Supabase refused the request (HTTP '+err.status+'). Check the read policy on qcp_audit.':err&&err.code?qerr(err):'Could not reach Supabase. Check the internet connection and try again.'};
   render()}
 $('qm').onchange=render;$('qr').onclick=function(){loadQ()};
 (window.claude&&window.claude.use?window.claude.use('mcp'):Promise.resolve(null)).then(function(m){MCP=m;loadQ()}).catch(function(){loadQ()});
