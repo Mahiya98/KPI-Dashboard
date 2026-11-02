@@ -49,7 +49,7 @@ svg text{font-family:var(--sans);font-size:9px;fill:var(--muted)}
     <label>From date<input type="date" id="fd"></label>
     <label>To date<input type="date" id="td"></label>
     <label>QCP counted as<select id="qm"><option value="e">Audit records (rows)</option><option value="m">Distinct machines</option></select></label>
-    <label>QCP data<button id="qr" type="button">Refresh from Supabase</button></label>
+    <label>Live data<button id="qr" type="button">Refresh now</button></label>
   </div>
 </div>
 
@@ -72,7 +72,7 @@ svg text{font-family:var(--sans);font-size:9px;fill:var(--muted)}
   <div class="box"><div class="hd"><h2>Kaizen (IC) cards</h2><span class="sub kmo"></span></div><div class="scroll"><table id="tk"></table></div></div>
   <div class="box"><div class="hd"><h2>Problem solving (PC) cards</h2><span class="sub kmo"></span></div><div class="scroll"><table id="tp"></table></div></div>
 </section>
-<div class="note" id="qnote"></div>
+<div class="note" id="qnote"></div><div class="note" id="snote"></div>
 <div class="note">Kaizen and Problem solving show month to date for the month of the "To date". The date range does not change them. The SBU filter does.</div>
 </div>
 <script>
@@ -100,7 +100,7 @@ function chart(ds,vals,tgt,ymax,kind,fmt){
 function render(){
   var a=$('fd').value,b=$('td').value;if(!a||!b||a>b){return}
   var ds=days(a,b),sl=sbuList(),si=sl.map(function(s){return SB.indexOf(s)});
-  $('asof').textContent='5S, Kaizen and PC data as of '+sh(ASOF)+' '+ASOF.slice(0,4)+' · QCP '+(QS.s=='ok'?'live from Supabase':QS.s=='run'?'loading…':'not loaded');
+  $('asof').textContent='5S snapshot as of '+sh(ASOF)+' '+ASOF.slice(0,4)+' · Kaizen and PC '+(SS.s=='ok'?'live from Google Sheets (updated '+SS.t+')':SS.s=='run'?'loading…':'NOT loaded, sheet not reachable')+' · QCP '+(QS.s=='ok'?'live from Supabase':QS.s=='run'?'loading…':'not loaded');
   // 5S
   var g={};F5.forEach(function(r){if(r[1]<a||r[1]>b)return;var s=SB[r[0]];if(!inSbu(s))return;var k=r[1]+'|'+s;(g[k]=g[k]||[]).push(r[2])});
   var avg=function(arr){return arr.reduce(function(x,y){return x+y},0)/arr.length};
@@ -129,13 +129,13 @@ function render(){
     var h='<tr><th>SBU</th><th class="n">Created</th>'+cols.map(function(c){return '<th class="n">'+c+'</th>'}).join('')+'</tr>',tn=0;
     sl.forEach(function(s){var x=t[s]||{n:0};tn+=x.n;h+='<tr><td>'+s+'</td><td class="n"><b>'+x.n+'</b></td>'+cols.map(function(c){return '<td class="n">'+(x[c]||'<span style="color:var(--muted)">·</span>')+'</td>'}).join('')+'</tr>'});
     h+='<tr class="tot"><td>Total</td><td class="n">'+tn+'</td>'+cols.map(function(c){return '<td class="n">'+(tt[c]||0)+'</td>'}).join('')+'</tr>';$(el).innerHTML=h;return tn}
-  $('qnote').textContent=QS.s=='ok'&&QBLANK?QBLANK+' older QCP test entries have no SBU in Supabase and are left out.':'';var kn=mt(IC,'tk'),pn=mt(PC,'tp');
+  $('snote').textContent=SS.s=='err'?'Kaizen and PC cards could not be loaded from Google Sheets. '+SS.m+' Press Refresh now to retry.':'';$('qnote').textContent=QS.s=='ok'&&QBLANK?QBLANK+' older QCP test entries have no SBU in Supabase and are left out.':'';var kn=mt(IC,'tk'),pn=mt(PC,'tp');
   $('tiles').innerHTML=[
    ['5S average',tot==null?'–':tot.toFixed(1)+'%',tot==null?'':tot>=T5?'good':'bad','Target '+T5+'% · '+have+' audit days'],
    ['5S days at target',have?meet+' / '+have:'–',have&&meet==have?'good':'','Days with an average of '+T5+'% or more'],
    ['QCP audits',QS.s=='ok'?qn:'–','',QS.s=='ok'?'Target '+tq+' per day · '+qmeet+' SBU-days at target':'no data loaded'],
-   ['Kaizen cards',kn,'',ml+' month to date'],
-   ['Problem solving cards',pn,'',ml+' month to date']
+   ['Kaizen cards',SS.s=='ok'?kn:'–','',SS.s=='ok'?ml+' month to date':'sheet not loaded'],
+   ['Problem solving cards',SS.s=='ok'?pn:'–','',SS.s=='ok'?ml+' month to date':'sheet not loaded']
   ].map(function(t){return '<div class="tile '+t[2]+'"><b>'+t[1]+'</b><span><b style="display:inline;font-size:12px;font-weight:600;color:var(--fg)">'+t[0]+'</b><br>'+t[3]+'</span></div>'}).join('');
 }
 $('fs').innerHTML='<option value="">All</option>'+SB.map(function(s){return '<option>'+s+'</option>'}).join('');
@@ -178,7 +178,108 @@ async function loadQ(){
   if(rows){QBLANK=0;QC=[];rows.forEach(function(r){if(r.s=='(blank)'){QBLANK+=r.e;return}QC.push({d:r.d,s:normS(r.s),m:r.m,e:r.e,p:r.p})});QS={s:'ok',m:''};addSbuOptions()}
   else QS={s:'err',m:err&&err.code=='unreadable'?'The QCP result could not be read. Received: '+err.peek:err&&err.code=='http'?'Supabase refused the request (HTTP '+err.status+'). Check the read policy on qcp_audit.':err&&err.code?qerr(err):'Could not reach Supabase. Check the internet connection and try again.'};
   render()}
-$('qm').onchange=render;$('qr').onclick=function(){loadQ()};
+/* ---- Google Sheets live loader (Kaizen + Problem solving) ---- */
+var SHEET_ID='1niy63FEnRMSMf1Kk8hsarwdnD_u3ogZ1LGZ7QDDOxug',GID_IC='0',GID_PC='66619753';
+var SS={s:'idle',m:'',t:''};IC=[];PC=[];
+function csvParse(t){var rows=[],r=[],c='',q=false,i=0,n=t.length;
+  for(;i<n;i++){var ch=t[i];
+    if(q){if(ch=='"'){if(t[i+1]=='"'){c+='"';i++}else q=false}else c+=ch}
+    else if(ch=='"')q=true;
+    else if(ch==','){r.push(c);c=''}
+    else if(ch=='\n'||ch=='\r'){if(ch=='\r'&&t[i+1]=='\n')i++;r.push(c);rows.push(r);r=[];c=''}
+    else c+=ch}
+  if(c!==''||r.length){r.push(c);rows.push(r)}
+  return rows}
+function sheetUrls(gid){var b='https://docs.google.com/spreadsheets/d/'+SHEET_ID;
+  return [b+'/export?format=csv&gid='+gid,b+'/gviz/tq?tqx=out:csv&gid='+gid]}
+async function fetchSheet(gid){var err=null,u=sheetUrls(gid);
+  for(var i=0;i<u.length;i++){
+    try{var r=await fetch(u[i],{cache:'no-store'});
+      if(!r.ok){err={code:'http',status:r.status};continue}
+      var t=await r.text();
+      if(/^\s*<(!doctype|html)/i.test(t)){err={code:'notpublic'};continue}
+      return csvParse(t)}
+    catch(e){err={code:'network'}}}
+  throw err||{code:'network'}}
+function colMap(rows){
+  for(var i=0;i<Math.min(rows.length,60);i++){
+    var h=rows[i].map(function(x){return String(x).trim().toLowerCase()});
+    if(h.indexOf('card no')>=0&&h.indexOf('status')>=0)return {head:i,h:h}}
+  return null}
+function lastIdx(h,name){var k=-1;h.forEach(function(x,i){if(x==name)k=i});return k}
+function cleanMonth(m){m=String(m).trim();var x=m.match(/^(\d{4})-(\d{2})/);return x?MN[+x[2]-1]+'-'+x[1].slice(2):m}
+function parseCards(rows,kind){
+  var cm=colMap(rows);if(!cm)throw {code:'layout'};
+  var h=cm.h,iC=h.indexOf('card no'),iM=h.indexOf('created month'),iS=h.indexOf('status'),
+      iB=lastIdx(h,'sbu'),iS2=lastIdx(h,'status 2'),out=[];
+  if(iC<0||iM<0||iB<0)throw {code:'layout'};
+  for(var i=cm.head+1;i<rows.length;i++){var r=rows[i],id=String(r[iC]||'').trim();
+    if(!id)continue;
+    var sb=SB.indexOf(normS(r[iB]||''));if(sb<0)continue;
+    var st=String(r[iS]||'').trim();
+    if(kind=='pc'&&['Completed','Ongoing','Initiated','Rejected','Not Started'].indexOf(st)<0){
+      /* older PC rows keep their status in a shifted column */
+      var nx=[r[iS+1],r[iS+2]].map(function(x){return String(x||'').trim()});
+      if(nx.indexOf('Completed')>=0)st='Completed';
+      else if(iS2>=0&&/approved/i.test(r[iS2]||''))st='Completed';
+      else if(st=='N/A')st='Rejected';
+      else st=''}
+    out.push([sb,id,cleanMonth(r[iM]),st])}
+  return out}
+
+var XLSX_URL='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',XLSX_MIME='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+function loadXlsx(){return new Promise(function(ok,no){if(window.XLSX)return ok();var sc=document.createElement('script');sc.src=XLSX_URL;sc.onload=function(){ok()};sc.onerror=function(){no({code:'lib'})};document.head.appendChild(sc)})}
+function findB64(x,d){if(d>6||x==null)return null;
+  if(typeof x=='string'){var t=x.trim();if(t[0]=='{'||t[0]=='['){try{return findB64(JSON.parse(t),d+1)}catch(e){}}return null}
+  if(Array.isArray(x)){for(var i=0;i<x.length;i++){var r=findB64(x[i],d+1);if(r)return r}return null}
+  if(typeof x=='object'){if(typeof x.content=='string'&&x.content.length>1000&&x.content[0]!='{')return x.content;
+    for(var k in x){var r2=findB64(x[k],d+1);if(r2)return r2}}
+  return null}
+function pickSheet(wb,exact,part){var n=wb.SheetNames.filter(function(s){return s==exact})[0]||wb.SheetNames.filter(function(s){return s.toLowerCase().indexOf(part)>=0&&s.toLowerCase().indexOf('pivot')<0})[0];
+  if(!n)throw {code:'layout'};
+  return XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:'',raw:true}).map(function(r){return r.map(function(c){return c==null?'':String(c)})})}
+async function viaDrive(){
+  if(!window.__mcpp)window.__mcpp=(window.claude&&window.claude.use?window.claude.use('mcp'):Promise.resolve(null)).catch(function(){return null});
+  var m=await window.__mcpp;if(m)MCP=m;
+  if(!MCP)throw {code:'nomcp'};
+  var res=await MCP.callTool('Google Drive','download_file_content',{fileId:SHEET_ID,exportMimeType:XLSX_MIME},{cache:false});
+  var b64=findB64(res.payload,0)||findB64(res.structuredContent,0)||findB64(res.content,0);
+  if(!b64)throw {code:'unreadable'};
+  await loadXlsx();
+  var wb=XLSX.read(b64,{type:'base64'});
+  return [pickSheet(wb,'Kaizen Card','kaizen'),pickSheet(wb,'Problem Solving','problem')]}
+async function getSheetRows(){
+  var e1=null;
+  try{return await Promise.all([directRows(GID_IC),directRows(GID_PC)])}catch(e){e1=e}
+  try{return await viaDrive()}catch(e2){e2.first=e1;throw e2}}
+
+function jsonpSheet(gid){return new Promise(function(ok,no){
+  var cb='__gv_'+gid+'_'+Date.now(),sc=document.createElement('script'),done=false;
+  function fin(f,v){if(done)return;done=true;try{delete window[cb]}catch(e){window[cb]=undefined}sc.remove();f(v)}
+  window[cb]=function(j){try{
+    if(!j||j.status!='ok'||!j.table)return fin(no,{code:'notpublic'});
+    var rows=j.table.rows.map(function(r){return (r.c||[]).map(function(c){return c==null||c.v==null?'':(c.f!=null&&typeof c.v!='string'?String(c.f):String(c.v))})});
+    fin(ok,rows)}catch(e){fin(no,{code:'layout'})}};
+  sc.onerror=function(){fin(no,{code:'network'})};
+  setTimeout(function(){fin(no,{code:'timeout'})},15000);
+  sc.src='https://docs.google.com/spreadsheets/d/'+SHEET_ID+'/gviz/tq?gid='+gid+'&headers=0&tqx=out:json;responseHandler:'+cb;
+  document.head.appendChild(sc)})}
+async function directRows(gid){try{return await fetchSheet(gid)}catch(e){try{return await jsonpSheet(gid)}catch(e2){throw e}}}
+function stamp(){var d=new Date();return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)}
+function sheetErr(e){var c=e&&e.code;return c=='needs_reauth'?'Reconnect Google Drive in claude.ai Settings > Connectors.':c=='server_not_connected'||c=='nomcp'?'Add the Google Drive connector in claude.ai Settings > Connectors (or open the page inside claude.ai).':c=='approval_required'||c=='not_in_manifest'||c=='consent_required'?'Allow Google Drive for this page when asked, then press Refresh now.':c=='unreadable'?'The Drive answer could not be read.':c=='lib'?'Could not load the spreadsheet reader.':c=='notpublic'||c=='http'&&(e.status==401||e.status==403||e.status==404)?'The Google Sheet is not shared as "Anyone with the link can view".':c=='layout'?'The sheet columns changed (Card No, Created Month, Status, SBU are needed).':'Could not reach Google Sheets.'}
+async function loadSheets(){
+  SS.s='run';render();
+  try{var res=await getSheetRows();
+    var ic=parseCards(res[0],'ic'),pc=parseCards(res[1],'pc');
+    if(!ic.length||!pc.length)throw {code:'layout'};
+    IC=ic;PC=pc;SS={s:'ok',m:'',t:stamp()}}
+  catch(e){IC=[];PC=[];SS={s:'err',m:sheetErr(e)+' ['+((e&&e.code)||'error')+((e&&e.status)?' '+e.status:'')+((e&&e.message)?': '+String(e.message).slice(0,160):'')+((e&&e.first&&e.first.code)?' | direct: '+e.first.code:'')+']',t:''}}
+  render()}
+
+$('qm').onchange=render;$('qr').onclick=function(){loadQ();loadSheets()};
+loadSheets();
+setInterval(function(){if(!document.hidden){loadQ();loadSheets()}},300000);
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&(!SS.t||Date.now()-(window.__ls||0)>120000)){window.__ls=Date.now();loadSheets()}});
 (window.claude&&window.claude.use?window.claude.use('mcp'):Promise.resolve(null)).then(function(m){MCP=m;loadQ()}).catch(function(){loadQ()});
 render();
 </script>
